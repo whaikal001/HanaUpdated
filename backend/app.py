@@ -35,6 +35,19 @@ SUMMARY_FIELDS = [
     "support_need_announced",
 ]
 
+AEM_SUMMARY_FIELDS = [
+    "language", "session_index", "checkin", "dass_raw", "S", "Ed", "H",
+    "Ed_adaptive", "Bl", "pathway", "activity", "post_activity",
+    # Revised single-session update: experimental condition, per-cycle
+    # H / Ed_adaptive / Bl, checkpoint responses and the final check.
+    "condition", "cycle2_choice",
+    "H_1", "H_2", "H_3", "Ed_adaptive_1", "Ed_adaptive_2", "Ed_adaptive_3",
+    "Bl_1", "Bl_2", "Bl_3", "checkpoint_1", "checkpoint_2", "final_check",
+]
+
+# One row per interaction cycle (section 19 cycle-level logging).
+AEM_CYCLE_FIELDS = ["cycle", "started_at", "Ed", "H", "Ed_adaptive", "Bl", "check_type", "check"]
+
 
 def get_db():
     if "db" not in g:
@@ -128,6 +141,74 @@ def init_db():
             db.execute("ALTER TABLE summaries ADD COLUMN %s TEXT" % col)
     if "attempts" not in existing_cols:
         db.execute("ALTER TABLE summaries ADD COLUMN attempts INTEGER DEFAULT 1")
+    # AEM session values (HANA Update 01/10/26, step 17) for the latest session.
+    for col in AEM_SUMMARY_FIELDS:
+        if col not in existing_cols:
+            db.execute("ALTER TABLE summaries ADD COLUMN %s TEXT" % col)
+
+    # Interaction History Repository: one row per session, never overwritten,
+    # so every session's S, Ed, H, Ed_adaptive and Bl is kept.
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS aem_history (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            received_at     TEXT DEFAULT (datetime('now')),
+            device_id       TEXT,
+            app_type        TEXT,
+            user_name       TEXT,
+            profile_id      TEXT,
+            profile_slot    TEXT,
+            session_id      TEXT,
+            client_ts       TEXT,
+            stress_level    TEXT,
+            language        TEXT,
+            session_index   TEXT,
+            checkin         TEXT,
+            dass_raw        TEXT,
+            S               TEXT,
+            Ed              TEXT,
+            H               TEXT,
+            Ed_adaptive     TEXT,
+            Bl              TEXT,
+            pathway         TEXT,
+            activity        TEXT,
+            post_activity   TEXT
+        )
+        """
+    )
+    hist_cols = {row[1] for row in db.execute("PRAGMA table_info(aem_history)")}
+    for col in AEM_SUMMARY_FIELDS:
+        if col not in hist_cols:
+            db.execute("ALTER TABLE aem_history ADD COLUMN %s TEXT" % col)
+
+    # Cycle-level history: one row per interaction cycle, never overwritten.
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS aem_cycles (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            received_at     TEXT DEFAULT (datetime('now')),
+            device_id       TEXT,
+            app_type        TEXT,
+            condition       TEXT,
+            user_name       TEXT,
+            profile_id      TEXT,
+            profile_slot    TEXT,
+            session_id      TEXT,
+            client_ts       TEXT,
+            stress_level    TEXT,
+            dass_raw        TEXT,
+            S               TEXT,
+            cycle           TEXT,
+            started_at      TEXT,
+            Ed              TEXT,
+            H               TEXT,
+            Ed_adaptive     TEXT,
+            Bl              TEXT,
+            check_type      TEXT,
+            "check"         TEXT
+        )
+        """
+    )
 
     # Same for interactions: tag each row with the study arm + profile id/slot.
     inter_cols = {row[1] for row in db.execute("PRAGMA table_info(interactions)")}
@@ -140,6 +221,33 @@ def init_db():
 
     db.commit()
     db.close()
+
+
+# --------------------------------------------------------------------------- #
+# CORS — the itch.io web build runs the game from a different origin
+# (e.g. https://html.itch.zone), so the browser will only let it POST to the
+# /api/ endpoints if we answer the preflight and echo the allow headers. Auth is
+# by the X-Ingest-Token header (no cookies), so a wildcard origin is safe here.
+# Override with the HANA_CORS_ORIGIN env var to lock it to a specific origin.
+# --------------------------------------------------------------------------- #
+
+CORS_ORIGIN = os.environ.get("HANA_CORS_ORIGIN", "*")
+
+
+@app.before_request
+def _cors_preflight():
+    if request.method == "OPTIONS" and request.path.startswith("/api/"):
+        return ("", 204)
+
+
+@app.after_request
+def _cors_headers(resp):
+    if request.path.startswith("/api/"):
+        resp.headers["Access-Control-Allow-Origin"] = CORS_ORIGIN
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Ingest-Token"
+        resp.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        resp.headers["Access-Control-Max-Age"] = "86400"
+    return resp
 
 
 def login_required(view):
@@ -270,6 +378,44 @@ def api_summary():
             """,
             (data.get("device_id"), data.get("app_type"), data.get("user_name")) + fields,
         )
+
+    if data.get("Bl") is not None or data.get("Bl_1") is not None:
+        aem_values = tuple(_s(data.get(k)) for k in AEM_SUMMARY_FIELDS)
+        row_id = existing["id"] if existing else db.execute("SELECT last_insert_rowid()").fetchone()[0]
+        db.execute(
+            "UPDATE summaries SET %s WHERE id = ?" % ", ".join("%s = ?" % k for k in AEM_SUMMARY_FIELDS),
+            aem_values + (row_id,),
+        )
+        db.execute(
+            """
+            INSERT INTO aem_history
+                (device_id, app_type, user_name, profile_id, profile_slot, session_id,
+                 client_ts, stress_level, %s)
+            VALUES (?,?,?,?,?,?,?,?,%s)
+            """ % (", ".join(AEM_SUMMARY_FIELDS), ",".join("?" * len(AEM_SUMMARY_FIELDS))),
+            (data.get("device_id"), data.get("app_type"), data.get("user_name"),
+             profile_id, slot, data.get("session_id"), data.get("client_ts"),
+             data.get("stress_level")) + aem_values,
+        )
+    cycles = data.get("cycles")
+    if isinstance(cycles, list):
+        for c in cycles:
+            if not isinstance(c, dict):
+                continue
+            db.execute(
+                """
+                INSERT INTO aem_cycles
+                    (device_id, app_type, condition, user_name, profile_id, profile_slot,
+                     session_id, client_ts, stress_level, dass_raw, S,
+                     cycle, started_at, Ed, H, Ed_adaptive, Bl, check_type, "check")
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (data.get("device_id"), data.get("app_type"), data.get("condition"),
+                 data.get("user_name"), profile_id, slot, data.get("session_id"),
+                 data.get("client_ts"), data.get("stress_level"),
+                 _s(data.get("dass_raw")), _s(data.get("S")))
+                + tuple(_s(c.get(k)) for k in AEM_CYCLE_FIELDS),
+            )
     db.commit()
     return jsonify(ok=True)
 
@@ -400,10 +546,11 @@ def session_detail(device_id, session_id):
 # The three study arms, as stored in `app_type`, with display labels.
 ARM_LABELS = [
     ("adaptive", "Adaptive"),
+    ("triadic", "Triadic (AEM)"),
     ("strict_empathy", "Fixed (strict empathy)"),
     ("neutral", "Neutral (baseline)"),
 ]
-ARM_SHORT = {"adaptive": "Adaptive", "strict_empathy": "Fixed", "neutral": "Neutral"}
+ARM_SHORT = {"adaptive": "Adaptive", "triadic": "Triadic", "strict_empathy": "Fixed", "neutral": "Neutral"}
 
 
 @app.route("/summaries")
@@ -490,6 +637,18 @@ def export_interactions():
 @login_required
 def export_summaries():
     return _export("summaries")
+
+
+@app.route("/export/aem_history.csv")
+@login_required
+def export_aem_history():
+    return _export("aem_history")
+
+
+@app.route("/export/aem_cycles.csv")
+@login_required
+def export_aem_cycles():
+    return _export("aem_cycles")
 
 
 # One Excel workbook with a separate sheet per study arm, so all three HANA
