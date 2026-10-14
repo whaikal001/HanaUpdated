@@ -8,7 +8,7 @@ from functools import wraps
 
 from flask import (
     Flask, request, session, redirect, url_for,
-    render_template, jsonify, Response, abort, g,
+    render_template, jsonify, Response, g,
 )
 
 # --------------------------------------------------------------------------- #
@@ -27,14 +27,6 @@ INTERACTION_FIELDS = [
     "Ea", "Ec", "Ad", "Be", "D", "Ep", "empathy_mode",
 ]
 
-SUMMARY_FIELDS = [
-    "client_ts", "start_stress_score", "end_stress_score", "stress_improvement",
-    "final_calm_rating", "modes_used", "techniques_used", "total_interactions",
-    "session_duration_minutes", "end_action",
-    "stress_level", "empathy_mode", "intention_level", "empathy_E",
-    "support_need_announced",
-]
-
 AEM_SUMMARY_FIELDS = [
     "language", "session_index", "checkin", "dass_raw", "S", "Ed", "H",
     "Ed_adaptive", "Bl", "pathway", "activity", "post_activity",
@@ -47,6 +39,20 @@ AEM_SUMMARY_FIELDS = [
 
 # One row per interaction cycle (section 19 cycle-level logging).
 AEM_CYCLE_FIELDS = ["cycle", "started_at", "Ed", "H", "Ed_adaptive", "Bl", "check_type", "check"]
+
+# Session outcome fields kept in aem_history alongside the AEM values. The
+# triadic build sends these under the legacy summary keys, so map
+# history column -> payload key.
+AEM_HISTORY_SESSION_FIELDS = [
+    ("dass_score", "start_stress_score"),
+    ("intention", "intention_level"),
+    ("bl_path", "empathy_mode"),
+    ("techniques", "techniques_used"),
+    ("total_interactions", "total_interactions"),
+    ("session_duration_minutes", "session_duration_minutes"),
+    ("end_action", "end_action"),
+    ("counselling_offered", "support_need_announced"),
+]
 
 
 def get_db():
@@ -177,7 +183,7 @@ def init_db():
         """
     )
     hist_cols = {row[1] for row in db.execute("PRAGMA table_info(aem_history)")}
-    for col in AEM_SUMMARY_FIELDS:
+    for col in AEM_SUMMARY_FIELDS + [c for c, _ in AEM_HISTORY_SESSION_FIELDS]:
         if col not in hist_cols:
             db.execute("ALTER TABLE aem_history ADD COLUMN %s TEXT" % col)
 
@@ -386,16 +392,18 @@ def api_summary():
             "UPDATE summaries SET %s WHERE id = ?" % ", ".join("%s = ?" % k for k in AEM_SUMMARY_FIELDS),
             aem_values + (row_id,),
         )
+        hist_cols = AEM_SUMMARY_FIELDS + [c for c, _ in AEM_HISTORY_SESSION_FIELDS]
         db.execute(
             """
             INSERT INTO aem_history
                 (device_id, app_type, user_name, profile_id, profile_slot, session_id,
                  client_ts, stress_level, %s)
             VALUES (?,?,?,?,?,?,?,?,%s)
-            """ % (", ".join(AEM_SUMMARY_FIELDS), ",".join("?" * len(AEM_SUMMARY_FIELDS))),
+            """ % (", ".join(hist_cols), ",".join("?" * len(hist_cols))),
             (data.get("device_id"), data.get("app_type"), data.get("user_name"),
              profile_id, slot, data.get("session_id"), data.get("client_ts"),
-             data.get("stress_level")) + aem_values,
+             data.get("stress_level")) + aem_values
+            + tuple(_s(data.get(k)) for _, k in AEM_HISTORY_SESSION_FIELDS),
         )
     cycles = data.get("cycles")
     if isinstance(cycles, list):
@@ -545,12 +553,12 @@ def session_detail(device_id, session_id):
 
 # The three study arms, as stored in `app_type`, with display labels.
 ARM_LABELS = [
+    ("triadic", "Adaptive Triadic Empathy"),
     ("adaptive", "Adaptive"),
-    ("triadic", "Triadic (AEM)"),
     ("strict_empathy", "Fixed (strict empathy)"),
     ("neutral", "Neutral (baseline)"),
 ]
-ARM_SHORT = {"adaptive": "Adaptive", "triadic": "Triadic", "strict_empathy": "Fixed", "neutral": "Neutral"}
+ARM_SHORT = {"triadic": "Adaptive Triadic", "adaptive": "Adaptive", "strict_empathy": "Fixed", "neutral": "Neutral"}
 
 
 @app.route("/summaries")
@@ -651,61 +659,287 @@ def export_aem_cycles():
     return _export("aem_cycles")
 
 
-# One Excel workbook with a separate sheet per study arm, so all three HANA
-# versions land in a single file: "adaptive", "strict_empathy", "baseline".
-ARM_SHEET_ORDER = ["adaptive", "strict_empathy", "baseline"]
+# --------------------------------------------------------------------------- #
+# Excel exports. Each sheet lists only the columns that arm actually fills,
+# with readable headers, as (db column, header) pairs.
+# --------------------------------------------------------------------------- #
+
+ARM_SHEET_ORDER = [k for k, _ in ARM_LABELS]
+
+# Adaptive Triadic: one row per session from aem_history (never overwritten,
+# unlike `summaries`, which keeps only the latest session per profile).
+TRIADIC_SESSION_COLUMNS = [
+    ("received_at", "Received (server, UTC)"),
+    ("client_ts", "Session time (device)"),
+    ("user_name", "User"),
+    ("profile_id", "Profile ID"),
+    ("device_id", "Device ID"),
+    ("session_id", "Session ID"),
+    ("session_index", "Session #"),
+    ("condition", "Condition"),
+    ("language", "Language"),
+    ("checkin", "Check-in"),
+    ("dass_raw", "DASS stress raw (0-21)"),
+    ("dass_score", "DASS stress score (0-42)"),
+    ("stress_level", "Stress level"),
+    ("S", "S"),
+    ("Ed", "Ed"),
+    ("H", "H"),
+    ("Ed_adaptive", "Ed_adaptive"),
+    ("Bl", "Bl"),
+    ("intention", "Intention (I)"),
+    ("pathway", "Pathway"),
+    ("cycle2_choice", "Cycle 2 choice"),
+    ("activity", "Activities"),
+    ("checkpoint_1", "Checkpoint 1"),
+    ("checkpoint_2", "Checkpoint 2"),
+    ("final_check", "Final check"),
+    ("bl_path", "Bl per cycle"),
+    ("counselling_offered", "Counselling offered"),
+    ("total_interactions", "Turns"),
+    ("session_duration_minutes", "Duration (min)"),
+    ("end_action", "Ended by"),
+]
+
+TRIADIC_CYCLE_COLUMNS = [
+    ("received_at", "Received (server, UTC)"),
+    ("client_ts", "Session time (device)"),
+    ("user_name", "User"),
+    ("profile_id", "Profile ID"),
+    ("session_id", "Session ID"),
+    ("condition", "Condition"),
+    ("stress_level", "Stress level"),
+    ("dass_raw", "DASS stress raw (0-21)"),
+    ("S", "S"),
+    ("cycle", "Cycle"),
+    ("started_at", "Cycle started (device)"),
+    ("Ed", "Ed"),
+    ("H", "H"),
+    ("Ed_adaptive", "Ed_adaptive"),
+    ("Bl", "Bl"),
+    ("check_type", "Check"),
+    ("check", "Answer"),
+]
+
+# The older arms (adaptive / strict_empathy / neutral) use the original
+# summary layout; the AEM columns stay empty for them, so they're left out.
+LEGACY_SUMMARY_COLUMNS = [
+    ("received_at", "Received (server, UTC)"),
+    ("client_ts", "Session time (device)"),
+    ("user_name", "User"),
+    ("profile_id", "Profile ID"),
+    ("device_id", "Device ID"),
+    ("session_id", "Session ID"),
+    ("attempts", "Attempts"),
+    ("start_stress_score", "Start stress"),
+    ("end_stress_score", "End stress"),
+    ("stress_improvement", "Improvement"),
+    ("final_calm_rating", "Calm rating"),
+    ("modes_used", "Modes used"),
+    ("techniques_used", "Techniques"),
+    ("total_interactions", "Turns"),
+    ("session_duration_minutes", "Duration (min)"),
+    ("end_action", "Ended by"),
+    ("stress_level", "Stress level"),
+    ("empathy_mode", "Empathy mode"),
+    ("intention_level", "Intention"),
+    ("empathy_E", "E"),
+    ("support_need_announced", "Support announced"),
+]
+
+# Combined sheet: every session from every arm. Shared measures come first,
+# then the columns only one kind of arm fills.
+ALL_ARMS_COLUMNS = [
+    ("arm", "Arm"),
+    ("client_ts", "Session time (device)"),
+    ("received_at", "Received (server, UTC)"),
+    ("user_name", "User"),
+    ("profile_id", "Profile ID"),
+    ("device_id", "Device ID"),
+    ("session_id", "Session ID"),
+    ("stress_level", "Stress level"),
+    ("start_stress", "Start stress (DASS 0-42)"),
+    ("end_stress_score", "End stress"),
+    ("stress_improvement", "Improvement"),
+    ("techniques", "Techniques"),
+    ("intention", "Intention"),
+    ("total_interactions", "Turns"),
+    ("session_duration_minutes", "Duration (min)"),
+    ("end_action", "Ended by"),
+    # Adaptive Triadic only
+    ("session_index", "Session #"),
+    ("checkin", "Check-in"),
+    ("dass_raw", "DASS stress raw (0-21)"),
+    ("S", "S"),
+    ("Ed", "Ed"),
+    ("H", "H"),
+    ("Ed_adaptive", "Ed_adaptive"),
+    ("Bl", "Bl"),
+    ("bl_path", "Bl per cycle"),
+    ("pathway", "Pathway"),
+    ("cycle2_choice", "Cycle 2 choice"),
+    ("activity", "Activities"),
+    ("checkpoint_1", "Checkpoint 1"),
+    ("checkpoint_2", "Checkpoint 2"),
+    ("final_check", "Final check"),
+    ("counselling_offered", "Counselling offered"),
+    # Older arms only
+    ("final_calm_rating", "Calm rating"),
+    ("modes_used", "Modes used"),
+    ("empathy_mode", "Empathy mode"),
+    ("empathy_E", "E"),
+    ("support_need_announced", "Support announced"),
+]
+
+INTERACTION_COLUMNS = [
+    ("received_at", "Received (server, UTC)"),
+    ("client_ts", "Time (device)"),
+    ("user_name", "User"),
+    ("profile_id", "Profile ID"),
+    ("device_id", "Device ID"),
+    ("session_id", "Session ID"),
+    ("question", "Question / event"),
+    ("answer", "Answer"),
+    ("score", "Score"),
+    ("stress_level", "Stress level"),
+    ("Ea", "Ea"), ("Ec", "Ec"), ("Ad", "Ad"), ("Be", "Be"), ("D", "D"), ("Ep", "Ep"),
+    ("empathy_mode", "Mode"),
+]
+# Keys from the interactions `extra` JSON that get their own column first.
+INTERACTION_EXTRA_ORDER = [
+    "cycle", "S", "E", "I", "Ed", "H", "Ed_adaptive", "Bl", "hana_response",
+    "condition", "language",
+]
+
+# Stored as TEXT in SQLite; written to Excel as numbers so they can be charted.
+NUMERIC_COLUMNS = {
+    "session_index", "dass_raw", "dass_score", "start_stress", "S", "Ed", "H", "Ed_adaptive",
+    "intention", "total_interactions", "session_duration_minutes", "cycle",
+    "attempts", "start_stress_score", "end_stress_score", "stress_improvement",
+    "empathy_E", "score", "Ea", "Ec", "Ad", "Be", "D", "Ep", "E", "I",
+}
 
 
-@app.route("/export/summaries.xlsx")
-@login_required
-def export_summaries_xlsx():
-    return _export_xlsx("summaries")
+def _arm_title(arm):
+    title = dict(ARM_LABELS).get(arm, arm or "untagged")
+    # Excel caps sheet names at 31 chars and forbids []:*?/\
+    return "".join(ch for ch in title if ch not in "[]:*?/\\")[:31]
 
 
-@app.route("/export/interactions.xlsx")
-@login_required
-def export_interactions_xlsx():
-    return _export_xlsx("interactions")
+def _cell(col, value):
+    if col in NUMERIC_COLUMNS and value not in (None, ""):
+        try:
+            f = float(value)
+            return int(f) if f.is_integer() else f
+        except (TypeError, ValueError):
+            pass
+    if isinstance(value, (dict, list)):
+        return json.dumps(value)
+    return value
 
 
-def _export_xlsx(table):
-    from openpyxl import Workbook
+def _add_sheet(wb, title, columns, rows):
+    from openpyxl.styles import Font
 
-    db = get_db()
-    rows = db.execute("SELECT * FROM %s ORDER BY id ASC" % table).fetchall()
-    cols = list(rows[0].keys()) if rows else []
+    ws = wb.create_sheet(title=title)
+    ws.append([header for _, header in columns])
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for r in rows:
+        ws.append([_cell(col, r.get(col)) for col, _ in columns])
+    ws.freeze_panes = "A2"
+    for i, (_, header) in enumerate(columns, 1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = max(10, min(40, len(header) + 2))
+    return ws
 
-    # Group every row onto a sheet named after its study arm. Rows with no
-    # app_type (e.g. data from before this column existed) go to "untagged".
+
+def _rows_by_arm(rows):
+    """Group rows by app_type, in ARM_SHEET_ORDER, with unknown arms last."""
     grouped = {}
     for r in rows:
-        arm = (r["app_type"] if "app_type" in r.keys() else None) or "untagged"
-        grouped.setdefault(arm, []).append(r)
+        grouped.setdefault(r.get("app_type") or "untagged", []).append(r)
+    order = [a for a in ARM_SHEET_ORDER if a in grouped]
+    order += sorted(a for a in grouped if a not in order)
+    return [(a, grouped[a]) for a in order]
 
-    sheet_order = list(ARM_SHEET_ORDER)
-    for arm in grouped:
-        if arm not in sheet_order:
-            sheet_order.append(arm)
 
-    wb = Workbook()
-    wb.remove(wb.active)
-    for arm in sheet_order:
-        ws = wb.create_sheet(title=arm[:31])  # Excel caps sheet names at 31 chars
-        if cols:
-            ws.append(cols)
-        for r in grouped.get(arm, []):
-            ws.append([r[k] for k in cols])
-    if not wb.sheetnames:
-        wb.create_sheet(title="empty")
-
+def _xlsx_response(wb, filename):
     bio = io.BytesIO()
     wb.save(bio)
     bio.seek(0)
     return Response(
         bio.read(),
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=hana_%s.xlsx" % table},
+        headers={"Content-Disposition": "attachment; filename=%s" % filename},
     )
+
+
+@app.route("/export/summaries.xlsx")
+@login_required
+def export_summaries_xlsx():
+    from openpyxl import Workbook
+
+    db = get_db()
+    history = [dict(r) for r in db.execute(
+        "SELECT * FROM aem_history ORDER BY COALESCE(client_ts, received_at), id")]
+    cycles = [dict(r) for r in db.execute(
+        "SELECT * FROM aem_cycles ORDER BY COALESCE(client_ts, received_at), id, cycle")]
+    legacy = [dict(r) for r in db.execute(
+        "SELECT * FROM summaries WHERE COALESCE(app_type, '') != 'triadic' "
+        "ORDER BY COALESCE(client_ts, received_at), id")]
+
+    # Bring both layouts onto the shared column names for the combined sheet.
+    combined = [dict(r, arm=_arm_title(r.get("app_type") or "triadic"),
+                     start_stress=r.get("dass_score")) for r in history]
+    combined += [dict(r, arm=_arm_title(r.get("app_type")),
+                      start_stress=r.get("start_stress_score"),
+                      techniques=r.get("techniques_used"),
+                      intention=r.get("intention_level")) for r in legacy]
+    combined.sort(key=lambda r: r.get("client_ts") or r.get("received_at") or "")
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    _add_sheet(wb, "All arms", ALL_ARMS_COLUMNS, combined)
+    # The Adaptive Triadic sheets always follow, even when still empty.
+    _add_sheet(wb, "Adaptive Triadic - sessions", TRIADIC_SESSION_COLUMNS, history)
+    _add_sheet(wb, "Adaptive Triadic - cycles", TRIADIC_CYCLE_COLUMNS, cycles)
+    for arm, rows in _rows_by_arm(legacy):
+        _add_sheet(wb, _arm_title(arm), LEGACY_SUMMARY_COLUMNS, rows)
+    return _xlsx_response(wb, "hana_summaries.xlsx")
+
+
+@app.route("/export/interactions.xlsx")
+@login_required
+def export_interactions_xlsx():
+    from openpyxl import Workbook
+
+    db = get_db()
+    rows = []
+    for r in db.execute("SELECT * FROM interactions ORDER BY id ASC"):
+        row = dict(r)
+        try:
+            extra = json.loads(row.get("extra") or "{}")
+        except (TypeError, ValueError):
+            extra = {}
+        if isinstance(extra, dict):
+            for k, v in extra.items():
+                row.setdefault(k, v)
+        rows.append(row)
+
+    known = {c for c, _ in INTERACTION_COLUMNS} | {
+        "id", "app_type", "profile_slot", "session_file", "extra"}
+    wb = Workbook()
+    wb.remove(wb.active)
+    for arm, arm_rows in _rows_by_arm(rows):
+        # Each arm logs a different set of extra fields, so the columns are
+        # built from what that arm's rows actually contain.
+        extra_keys = {k for r in arm_rows for k in r if k not in known}
+        ordered = [k for k in INTERACTION_EXTRA_ORDER if k in extra_keys]
+        ordered += sorted(extra_keys - set(ordered))
+        _add_sheet(wb, _arm_title(arm), INTERACTION_COLUMNS + [(k, k) for k in ordered], arm_rows)
+    if not wb.sheetnames:
+        _add_sheet(wb, "No data yet", INTERACTION_COLUMNS, [])
+    return _xlsx_response(wb, "hana_interactions.xlsx")
 
 
 def _export(table):

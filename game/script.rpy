@@ -1,5 +1,4 @@
-﻿image bg room = "room.png"
-image logos_row = HBox(
+﻿image logos_row = HBox(
     Transform("logo_uum.png", fit="contain", ysize=160),
     Transform("logo_kpt.png", fit="contain", ysize=160),
     Transform("logo_ums.png", fit="contain", ysize=160),
@@ -18,28 +17,6 @@ image bg room_cat:
     "room_cat_shelf"
 image hana neutral = "Sprites/Neutral.png"
 image hana smiling = "Sprites/Smiling.png"
-image hana thinking:
-    "Sprites/Thinking.png"
-    pause renpy.random.uniform(0.6, 1.4)
-    block:
-        "Sprites/thinking_eyeclose.png"
-        zoom 2.51
-        pause 0.18
-        "Sprites/Thinking.png"
-        zoom 1.0
-        pause renpy.random.uniform(2.4, 5.0)
-        repeat
-image hana sad = "Sprites/Sad.png"
-image hana empathetic high = "Sprites/Empathetic high.png"
-image hana empathetic low = "Sprites/Empathetic low.png"
-image hana warm high = "Sprites/Warm high.png"
-image hana warm low = "Sprites/Warm low.png"
-image hana concerned high = "Sprites/Concerned high.png"
-image hana concerned low = "Sprites/Concerned low.png"
-image hana encouraging = "Sprites/Encouraging.png"
-image hana good job = "Sprites/Good job.png"
-image hana waving = "Sprites/Waving.png"
-image hana hello = "Sprites/Waving.png"
 image hana listening:
     "Sprites/Listening.png"
     pause renpy.random.uniform(0.6, 1.4)
@@ -49,56 +26,10 @@ image hana listening:
         "Sprites/Listening.png"
         pause renpy.random.uniform(2.4, 5.0)
         repeat
-image hana surprised = "Sprites/Thinking.png"
 
-# method hana wink
-image hana thinking eyeclose = "Sprites/thinking_eyeclose.png"
-image hana listening eyeclose = "Sprites/Listening_eyeclose.png"
-
-# scene extra untuk imagine
-image beach = "beautifulbeach.jpg"
-image beachscene = Movie(play="video/beachscene.webm")
 image breathing_guide = Movie(play="video/478breathing.webm", loop=True)
 
 # --- Hana Location transforms ---
-transform hana_center:
-    zoom 0.7
-    xalign 1.0
-    yanchor 0.925
-    ypos 0.993
-
-    on show:
-        alpha 0.0
-        linear 0.3 alpha 1.0
-    on replace:
-        linear 0.15 alpha 1.0
-    on hide:
-        alpha 1.0
-        linear 0.3 alpha 0.0
-
-transform hana_transition:
-    zoom 0.7
-    xalign 0.5
-    yanchor 0.925
-    ypos 0.993
-    
-    on show:
-        alpha 0.0
-        linear 0.3 alpha 1.0
-    on replace:
-        linear 0.15 alpha 1.0
-    on hide:
-        alpha 1.0
-        linear 0.3 alpha 0.0
-
-transform hana_quick_change:
-    zoom 0.7
-    xalign 0.5
-    yanchor 0.925
-    ypos 0.993
-    linear 0.15 alpha 0.5
-    linear 0.15 alpha 1.0
-
 transform hana_center_listen:
     zoom 1.82
     xalign renpy.random.choice([0.10, 0.22, 0.34])
@@ -157,21 +88,6 @@ transform hana_right:
         alpha 1.0
         linear 0.3 alpha 0.0
 
-# guna bila method imaginary
-transform scene_right:
-    zoom 0.5
-    xalign 0.95
-    yalign 0.5
-    on show:
-        alpha 0.0
-        xoffset 80
-        linear 0.6 alpha 1.0 xoffset 0
-    on replace:
-        linear 0.2 alpha 1.0 xoffset 0
-    on hide:
-        alpha 1.0
-        linear 0.4 alpha 0.0 xoffset 80
-
 transform breathing_guide_pos:
     zoom 0.5
     xalign 0.9
@@ -184,7 +100,6 @@ transform breathing_guide_pos:
 
 init python:
     import math
-    import random
     import datetime, csv, uuid, os
 
     def _hana_writable_log_dir():
@@ -252,49 +167,29 @@ init python:
         except Exception:
             pass
 
-    def log_interaction_enhanced(session_filename, session_id, question, answer,
-                        score=None, stress_level=None,
-                        Ea=None, Ec=None, Ad=None, Be=None, D=None, Ep=None,
-                        empathy_mode=None, Ea_history=None, user_struggles=None, 
-                        struggle_intensity=None, mode_shift_count=None, current_mode=None):
-        
-        log_path = os.path.join(DROPBOX_LOG_DIR, session_filename)
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    SESSION_SUMMARY_HEADER = [
+        "Session time (device)", "User", "Profile ID", "Session ID", "Session #",
+        "Condition", "Language", "Check-in", "DASS stress raw (0-21)",
+        "DASS stress score (0-42)", "Stress level", "S", "Ed", "H", "Ed_adaptive",
+        "Bl", "Intention (I)", "Pathway", "Cycle 2 choice", "Activities",
+        "Checkpoint 1", "Checkpoint 2", "Final check", "Bl per cycle",
+        "Counselling offered", "Turns", "Duration (min)", "Ended by",
+    ]
 
-        ea_hist_str = "|".join([f"{x:.3f}" for x in (Ea_history or [])]) if Ea_history else ""
-        
-        row = [
-            timestamp, session_id, question, answer, score, stress_level,
-            Ea, Ec, Ad, Be, D, Ep, empathy_mode,
-            ea_hist_str, user_struggles, struggle_intensity, mode_shift_count, current_mode
-        ]
-        
+    def _set_aside_old_csv(path, header):
         try:
-            write_header = not os.path.exists(log_path)
-            with open(log_path, "a", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                if write_header:
-                    writer.writerow([
-                        "timestamp","session_id","question","answer","score",
-                        "stress_level","Ea","Ec","Ad","Be","D","Ep","empathy_mode",
-                        "Ea_history","user_struggles","struggle_intensity","mode_shift_count","current_mode"
-                    ])
-                writer.writerow(row)
+            with open(path, newline="", encoding="utf-8") as f:
+                existing = next(csv.reader(f), None)
         except Exception:
-            pass  
-
+            return
+        if existing is None or existing == header:
+            return
+        root, ext = os.path.splitext(path)
+        old, n = root + "_old" + ext, 2
+        while os.path.exists(old):
+            old, n = "%s_old%d%s" % (root, n, ext), n + 1
         try:
-            hana_sync_interaction(
-                session_id, session_filename, timestamp, question, answer,
-                score, stress_level, Ea, Ec, Ad, Be, D, Ep, empathy_mode,
-                extra={
-                    "Ea_history": ea_hist_str,
-                    "user_struggles": user_struggles,
-                    "struggle_intensity": struggle_intensity,
-                    "mode_shift_count": mode_shift_count,
-                    "current_mode": current_mode,
-                },
-            )
+            os.rename(path, old)
         except Exception:
             pass
 
@@ -302,60 +197,41 @@ init python:
                            start_stress_score, end_stress_score,
                            modes_used, techniques_used, total_interactions,
                            final_calm_rating, session_duration_minutes, end_action,
-                           stress_improvement=None,
+                           stress_improvement="",
                            stress_level="", empathy_mode="", intention_level="",
                            empathy_E="", support_need_announced="", extra=None,
                            cycles=None):
 
-
-        log_path = os.path.join(DROPBOX_LOG_DIR, "session_summaries.csv")
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # calculatee stress
-        if stress_improvement is None:
-            stress_improvement = start_stress_score - end_stress_score if start_stress_score else 0
-
-        modes_str = "|".join(modes_used) if modes_used else "none"
-        techniques_str = "|".join(techniques_used) if techniques_used else "none"
+        x = extra or {}
 
         row = [
-            timestamp, session_id, user_name, start_stress_score, end_stress_score,
-            stress_improvement, final_calm_rating, modes_str, techniques_str,
-            total_interactions, session_duration_minutes, end_action,
-            stress_level, empathy_mode, intention_level, empathy_E, support_need_announced
+            timestamp, user_name, x.get("participant_id", ""), session_id,
+            x.get("session_index", ""), x.get("condition", ""), x.get("language", ""),
+            x.get("checkin", ""), x.get("dass_raw", ""), start_stress_score, stress_level,
+            x.get("S", ""), x.get("Ed", ""), x.get("H", ""), x.get("Ed_adaptive", ""),
+            x.get("Bl", ""), intention_level, x.get("pathway", ""),
+            x.get("cycle2_choice", ""), x.get("activity", ""),
+            x.get("checkpoint_1", ""), x.get("checkpoint_2", ""), x.get("final_check", ""),
+            empathy_mode, support_need_announced, total_interactions,
+            session_duration_minutes, end_action,
         ]
 
-        header = [
-            "timestamp", "session_id", "user_name", "start_stress_score", "end_stress_score",
-            "stress_improvement", "final_calm_rating", "modes_used", "techniques_used",
-            "total_interactions", "session_duration_minutes", "end_action",
-            "stress_level", "empathy_mode", "intention_level", "empathy_E", "support_need_announced"
-        ]
+        log_path = os.path.join(DROPBOX_LOG_DIR, "session_summaries.csv")
         pending_path = os.path.join(DROPBOX_LOG_DIR, "session_summaries_pending.csv")
         for target in (log_path, pending_path):
             try:
+                _set_aside_old_csv(target, SESSION_SUMMARY_HEADER)
                 write_header = not os.path.exists(target)
                 with open(target, "a", newline="", encoding="utf-8") as f:
                     writer = csv.writer(f)
                     if write_header:
-                        writer.writerow(header)
+                        writer.writerow(SESSION_SUMMARY_HEADER)
                     writer.writerow(row)
                 break
             except Exception:
                 continue
 
-        if extra:
-            aem_path = os.path.join(DROPBOX_LOG_DIR, "session_aem_summary.csv")
-            aem_keys = sorted(extra.keys())
-            try:
-                write_header = not os.path.exists(aem_path)
-                with open(aem_path, "a", newline="", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    if write_header:
-                        writer.writerow(["timestamp", "session_id", "user_name"] + aem_keys)
-                    writer.writerow([timestamp, session_id, user_name] + [extra[k] for k in aem_keys])
-            except Exception:
-                pass
         if cycles:
             cycle_path = os.path.join(DROPBOX_LOG_DIR, "session_aem_cycles.csv")
             cycle_keys = ["cycle", "started_at", "Ed", "H", "Ed_adaptive", "Bl", "check_type", "check"]
@@ -400,16 +276,11 @@ init python:
             "last_session_id": "",
             "last_stress_score": None,
             "last_stress_level": "unknown",
-            "last_empathy_mode": "unknown",
-            "last_intention_level": "unknown",
-            "last_empathy_E": 0.0,
-            "last_calm_rating": None,
             "last_technique": None,
             "last_end_action": "",
-            "support_need_announced": False,
             "music_enabled": None,  # None = never asked; True/False = saved preference
             "last_Bl": None,
-            "aem_history": [],   # per-session S, base Ed and per-cycle H, Ed_adaptive, Bl
+            "aem_history": [],   # per-session S, Ed, H, Ed_adaptive, Bl; feeds habituation
         }
 
     def load_user_profile(name):
@@ -449,7 +320,6 @@ init python:
             "visit_count": 0,
             "last_session_id": "",
             "last_stress_level": "unknown",
-            "last_calm_rating": None,
             "last_Bl": None,
         }
 
@@ -705,11 +575,22 @@ init python:
             "I": intention_score(E), "Ed": empathic_display(E),
         }
 
+    def previous_session_eds():
+        # Base Ed of each earlier completed session for this user, oldest first.
+        profile = renpy.store.user_profile or {}
+        eds = []
+        for rec in profile.get("aem_history", []) or []:
+            try:
+                eds.append(float(rec["Ed"]))
+            except Exception:
+                continue
+        return eds
+
     def start_cycle(r):
         st = renpy.store
         Ed = st.aem["Ed"]
         if HANA_CONDITION == "adaptive":
-            H = habituation(st.ed_history)
+            H = habituation(previous_session_eds())
         else:
             H = 0.0
         Ed_adaptive = adaptive_empathic_display(Ed, H)
@@ -721,9 +602,6 @@ init python:
         st.H = H
         st.Ed_adaptive = Ed_adaptive
         st.Bl = Bl
-        st.ed_history.append(Ed)
-        st.adaptive_ed_history.append(Ed_adaptive)
-        st.behaviour_history.append(Bl)
         st.cycle_records.append({
             "cycle": r,
             "started_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -746,94 +624,6 @@ init python:
             st.cycle_records[-1]["check_type"] = check_type
             st.cycle_records[-1]["check"] = answer
         log_turn("How do you feel compared with earlier?", answer)
-    def bl_line(table, key):
-        return table[key][max(1, min(5, int(renpy.store.Bl))) - 1]
-    #NS = NonStressQuestion, ST = StressQuestion, Q1 = first question, Q2 = second question, Q3 = third question
-    NS_Q1 = {
-        "family": (_("Okay"), _("That's good to hear."), _("It's good things are going well."), _("That sounds positive for you."), _("It's good to have that support.")),
-        "caring": (_("Okay"), _("That's good to hear."), _("It's good that things are going well."), _("That sounds meaningful to you."), _("It's good to have positive moments.")),
-        "work": (_("Okay"), _("That's good to hear."), _("It's good things are going well."), _("That sounds positive for you."), _("It's good to have things going well.")),
-        "health": (_("Okay"), _("That's good to hear."), _("It's good you're feeling well."), _("That sounds positive for you."), _("It's good that you're doing well.")),
-        "okay": (_("Okay"), _("I understand."), _("It's okay for things to feel steady."), _("It sounds like things are steady."), _("Having some stability can be helpful.")),
-    }
-    NS_Q2 = {
-        "resting": (_("Okay."), _("Rest can be helpful."), _("It's good that rest helps."), _("Rest seems important for you."), _("It's good you know what helps you.")),
-        "talking": (_("Okay."), _("Talking can help."), _("It's good to have someone."), _("Having someone to talk to matters."), _("That support seems important to you.")),
-        "enjoy": (_("Okay."), _("That sounds good."), _("It's good to enjoy things."), _("That sounds meaningful for you."), _("It's good to have something you enjoy.")),
-        "alone": (_("Okay."), _("That can be helpful."), _("Quiet time can feel good."), _("Having your own space seems helpful."), _("It's good you know what works for you.")),
-        "routine": (_("I'm listening."), _("Routine can be helpful."), _("It's good to have a routine."), _("Your routine seems to work for you."), _("Keeping that routine may support you.")),
-    }
-
-    
-    NS_TOPIC_ACK = {
-        "good": (_("Okay"), _("That's good to hear."), _("It's good you feel that way."), _("That sounds positive for you."), _("It's good to feel good about it.")),
-        "okay": (_("Okay"), _("I understand."), _("It's okay for things to feel steady."), _("It sounds like things are steady."), _("Having some stability can be helpful.")),
-    }
-    ST_Q1 = {
-        "caring": (_("I'm listening."), _("Take your time."), _("Caring can be difficult."), _("That sounds really difficult."), _("You don't have to face it alone.")),
-        "family": (_("I'm listening."), _("Take your time."), _("Family stress can be difficult."), _("That sounds really difficult."), _("You don't have to face it alone.")),
-        "work": (_("I'm listening."), _("Take your time."), _("That can feel stressful."), _("That sounds really stressful."), _("You don't have to handle it alone.")),
-        "health": (_("I'm listening."), _("Take your time."), _("That can be difficult."), _("That sounds really difficult."), _("You don't have to face it alone.")),
-        "other": (_("I'm listening."), _("Take your time."), _("That sounds difficult."), _("That sounds really difficult."), _("It sounds like a lot to deal with.")),
-    }
-    ST_Q2 = {
-        "worse": (_("I'm listening."), _("I understand your concern."), _("That uncertainty can be worrying."), _("It makes sense to feel concerned."), _("It can be hard not knowing what will happen.")),
-        "cant_manage": (_("I'm listening."), _("I hear you."), _("It sounds like a lot."), _("It sounds overwhelming right now."), _("You don't have to manage everything alone.")),
-        "others": (_("I'm listening."), _("I understand."), _("You're thinking about others too."), _("That sounds like a lot to carry."), _("It sounds difficult carrying that concern for others.")),
-        "unsure": (_("I'm listening."), _("That's okay."), _("Feeling unsure can be difficult."), _("It's understandable to feel stuck."), _("It can be hard when you're unsure what to do.")),
-        "other": (_("I'm listening."), _("Take your time."), _("I understand this is difficult."), _("It sounds important to you."), _("It sounds like this is weighing on you.")),
-    }
-    ST_Q3 = {
-        "tired": (_("I'm listening."), _("I hear you."), _("You sound quite tired."), _("That sounds exhausting."), _("It sounds like this has taken a lot out of you.")),
-        "overwhelmed": (_("I'm listening."), _("Take your time."), _("That sounds like a lot."), _("That sounds overwhelming."), _("You don't have to carry everything alone.")),
-        "focus": (_("I'm listening."), _("I understand."), _("Focusing can be difficult."), _("That sounds frustrating."), _("It sounds hard when this affects your focus.")),
-        "relax": (_("I'm listening."), _("I understand."), _("It sounds hard to unwind."), _("That sounds really draining."), _("It sounds exhausting not being able to relax.")),
-        "other": (_("I'm listening."), _("Take your time."), _("That sounds difficult."), _("It sounds like this affects you."), _("It sounds like this is affecting you quite a lot.")),
-    }
-    ST_Q4 = {
-        "resting": (_("I'm listening."), _("Rest can be helpful."), _("It's good that rest helps."), _("Making time to rest sounds important."), _("It sounds like rest really helps you.")),
-        "talking": (_("I'm listening."), _("Talking can help."), _("It's good to have someone."), _("Having someone to talk to can help."), _("That support seems important to you.")),
-        "enjoy": (_("I'm listening."), _("That sounds helpful."), _("It's good that this helps."), _("Making time for yourself can help."), _("It's good you have something that helps you.")),
-        "alone": (_("I'm listening."), _("That can help."), _("Some quiet time can help."), _("Giving yourself space sounds helpful."), _("It sounds like having some space helps you.")),
-        "nothing": (_("I'm listening."), _("I hear you."), _("That can feel difficult."), _("It sounds hard when nothing helps."), _("It sounds like you may need more support.")),
-    }
-    ST_Q5 = {
-        "family": (_("I'm listening."), _("That's good to know."), _("Family can be helpful."), _("It's good you have someone in your family to talk to."), _("Having family to turn to can be meaningful.")),
-        "friend": (_("I'm listening."), _("That's good to know."), _("Having a friend can help."), _("It's good you have a friend to talk to."), _("Having a friend to turn to can be meaningful.")),
-        "trust": (_("I'm listening."), _("That's good to know."), _("Having someone you trust can help."), _("That support can be important."), _("Having someone you trust can make a difference.")),
-        "professional": (_("I'm listening."), _("That's good to know."), _("Professional support can be helpful."), _("Having professional support can be helpful."), _("It's good that professional support is available to you.")),
-        "none": (_("I'm listening."), _("I hear you."), _("That can feel difficult."), _("It can be hard without support."), None),
-    }
-
-    C2_NS_TOPIC = {
-        "caring": (_("Okay."), _("Thanks for sharing that."), _("Caring for someone matters."), _("Caring for someone sounds meaningful to you."), _("It's good to make space to talk about caring.")),
-        "family": (_("Okay."), _("Thanks for sharing that."), _("Family can mean a lot."), _("Family sounds important to you."), _("It's good to make space to talk about family.")),
-        "work": (_("Okay."), _("Thanks for sharing that."), _("Work and money matter."), _("That sounds important to you."), _("It's good to make space to talk about this.")),
-        "health": (_("Okay."), _("Thanks for sharing that."), _("Health is important."), _("Your health sounds important to you."), _("It's good to make space for your health.")),
-        "other": (_("Okay."), _("Thanks for sharing that."), _("I'm glad you shared that."), _("That sounds important to you."), _("It's good to make space for what matters to you.")),
-    }
-    C2_ST_FOCUS = {
-        "worry": (_("I'm listening."), _("I understand."), _("Worries can feel heavy."), _("It makes sense to focus on that."), _("It sounds like this worry is weighing on you.")),
-        "impact": (_("I'm listening."), _("I understand."), _("It sounds like it affects you a lot."), _("It makes sense to look at how it affects you."), _("It sounds like this has been hard on you.")),
-        "can_do": (_("I'm listening."), _("That's a good focus."), _("Small steps can help."), _("Thinking about what you can do sounds helpful."), _("It's good to focus on what is within your control.")),
-        "other": (_("I'm listening."), _("Take your time."), _("That sounds important."), _("It sounds like that matters to you."), _("It's okay to focus on what matters to you.")),
-    }
-    C2_HELP = {
-        "break": (_("Okay."), _("A short break can help."), _("It's good to give yourself a break."), _("A short break sounds helpful for you."), _("You deserve some time to rest and reset.")),
-        "talking": (_("Okay."), _("Talking can help."), _("It's good to have someone to talk to."), _("Talking to someone sounds helpful for you."), _("Reaching out to someone can make a difference.")),
-        "calming": (_("Okay."), _("That can help."), _("Something calming can be helpful."), _("Doing something calming sounds helpful."), _("It's good to give yourself something calming.")),
-        "next_step": (_("Okay."), _("That can help."), _("Thinking ahead can be helpful."), _("Planning your next step sounds helpful."), _("Taking one small step at a time can help.")),
-    }
-    C2_CHOICE = {
-        "nothing": (_("Okay."), _("That's okay."), _("That's okay. We can take it easy."), _("That's completely okay."), _("That's okay. You know what you need right now.")),
-        "support": (_("Okay."), _("Okay, here it is."), _("Support can be helpful."), _("It's good to know where to find support."), _("It's good to reach out. You don't have to face this alone.")),
-    }
-
-    ACT_ACK = {
-        "yes": (_("Okay."), _("Okay, let's try it."), _("That sounds like a good choice."), _("Let's take a few minutes for this together."), _("Let's take this time for yourself together.")),
-        "no": (_("Okay, that's fine."), _("Okay, that's fine."), _("That's okay. We can stop here."), _("That's completely okay."), _("That's okay. You know what feels right for you.")),
-    }
-
     def log_turn(question, answer, response=None):
         st = renpy.store
         a = st.aem or {}
@@ -867,6 +657,9 @@ init python:
             "stress_level": st.stress_level,
             "S": round(a.get("S", 0.0), 6),
             "Ed": round(a.get("Ed", 0.0), 6),
+            "H": round(st.H, 6),
+            "Ed_adaptive": round(st.Ed_adaptive, 6),
+            "Bl": "B%d" % st.Bl,
             "cycles": cycles,
             "final_check": st.final_check,
         }
@@ -909,6 +702,9 @@ init python:
             "dass_raw": st.raw_score,
             "S": record["S"],
             "Ed": record["Ed"],
+            "H": record["H"],
+            "Ed_adaptive": record["Ed_adaptive"],
+            "Bl": record["Bl"],
             "pathway": st.pathway,
             "cycle2_choice": st.c2_choice,
             "activity": "|".join(st.activity_log) or "none",
@@ -942,16 +738,6 @@ init python:
 init 999 python:
     cleanup_unfinished_profile_slots()
 
-default support_need_announced = False
-default compassion_cooldown_steps = 0
-default last_calm_rating = None
-default calm_rated_this_session = False
-default last_technique = None
-default calming_done = False  
-default feedback_given = False  
-default avoid_technique_first = None  
-default struggle_intensity = 0  
-default mode_shift_reason = "" 
 default quick_menu = True
 
 # --- Characters ---
@@ -964,62 +750,16 @@ define HANA_CONDITION = "adaptive"
 default Ea = 0.2
 default Ec = 0.2
 default Be = 0.1
-default Ep = 0.0
-default E = 0.0
-default I = 0.0
-default D = 0.0
-default S = 0.0
 default stress_level = "Normal"
-default stress_level_desc = "Normal"
-default Ea_history = []
-default Ad = 0.2
-default last_empathy_mode = "unknown"
-default day_impact = ""
-default routine_stress = ""
-default extra_weight = ""
 
-default turn_id = 0
-default feedback = 0.0
-default system_response = ""
-default user_input = ""
-
-default modes_used_list = []  
-default techniques_used_list = []  
-default session_start_stress = 0  
-default initial_stress_score = 0  
-default interaction_count = 0 
-default session_start_time = None  
+default techniques_used_list = []
+default interaction_count = 0
+default session_start_time = None
 
 default session_id = ""
 default session_filename = ""
 
-default emotional_state = "unsure"
-default last_intention_level = "unknown"
-default last_intensity_bucket = "unknown"
-default last_empathy_E = 0.0
-
-default situation_type = None
-default duration = None
-default initial_empathy_hint = None
-
-
-default controller_score = 0
-default cognitive_score = 0
-default compassionate_score = 0
-default compassionate_level = "Low" 
-
-default initial_empathy_profile = "Triadic"  
-default current_empathy_mode = "Triadic"  
-default empathy_progression = ["Affective", "Cognitive", "Compassionate"]  
-default current_progression_index = 0  
-default mode_shift_count = 0  #
-default user_struggles = False  
-
-default initial_stress_level = "Normal"
-default initial_empathy_mode = "unknown"
-default initial_Ea = 0.2
 default stress_score = 0
-default checkin_s_in_history = []
 default session_lang = "english"
 default checkin_ans = ""
 default aem = {}
@@ -1027,9 +767,6 @@ default Bl = 1
 default cycle = 1
 default H = 0.0
 default Ed_adaptive = 0.0
-default ed_history = []
-default adaptive_ed_history = []
-default behaviour_history = []
 default checkpoint_history = []
 default cycle_records = []
 default final_check = ""
@@ -1058,58 +795,6 @@ default hana_pos = hana_mid
 
 # --- Flow Starts ---
 
-
-# fade transition ubah muka
-label hana_wave:
-    show hana waving at hana_pos
-    with Fade(0.3, 0.0, 0.3)
-    return
-
-label hana_smile:
-    show hana smiling at hana_pos
-    with Fade(0.3, 0.0, 0.3)
-    return
-
-label hana_listen:
-    show hana listening at hana_pos
-    with Fade(0.3, 0.0, 0.3)
-    return
-
-label hana_listen_wink:
-    show hana listening at hana_pos
-    with Fade(0.3, 0.0, 0.3)
-    return
-
-label hana_thinking_wink:
-    show hana thinking at hana_pos
-    with Fade(0.3, 0.0, 0.3)
-    return
-
-label hana_neutral:
-    show hana neutral at hana_pos
-    with Fade(0.3, 0.0, 0.3)
-    return
-
-label hana_concern_low:
-    show hana concerned low at hana_pos
-    with Fade(0.3, 0.0, 0.3)
-    return
-
-label hana_concern_high:
-    show hana concerned high at hana_pos
-    with Fade(0.3, 0.0, 0.3)
-    return
-
-label hana_encouraging:
-    show hana encouraging at hana_pos
-    with Fade(0.3, 0.0, 0.3)
-    return
-
-label hana_good_job:
-    show hana good job at hana_pos
-    with Fade(0.3, 0.0, 0.3)
-    return
-
 label start:
 
     scene black
@@ -1136,16 +821,11 @@ label start:
     $ Ea = Ea0
     $ Ec = Ec0
     $ Be = Be0
-    $ Ad = None
-    $ I = 0
     $ aem = {}
     $ Bl = 1
     $ cycle = 1
     $ H = 0.0
     $ Ed_adaptive = 0.0
-    $ ed_history = []
-    $ adaptive_ed_history = []
-    $ behaviour_history = []
     $ checkpoint_history = []
     $ cycle_records = []
     $ final_check = ""
@@ -1157,14 +837,8 @@ label start:
     $ activity_done = ""
     $ counselling_offered = False
     $ closed_at = ""
-    $ Ep = 0.0
-    $ E = 0.0
-    $ D = 0.0
-    $ S = 0.0
-    $ Ea_history = []
     $ stress_score = 0
     $ stress_level = "Normal"
-    $ stress_level_desc = "Normal"
     $ checkin_ans = ""
     $ techniques_used_list = []
     $ interaction_count = 0
@@ -1182,7 +856,6 @@ label start:
         $ user_profile_key, user_profile_store, user_profile = None, None, {}
 
     $ is_returning_user = user_profile.get("visit_count", 0) > 0
-    $ last_stress_level = user_profile.get("last_stress_level", "unknown")
     #2 flow: user baru or lama
     if is_returning_user:
         show hana neutral at hana_pos
@@ -1229,7 +902,7 @@ label start:
     $ user_profile = save_user_profile(user_name, {"music_enabled": music_pref})
     $ log_interaction(session_filename, session_id,
                       "Music preference", "music_on" if music_pref else "music_off",
-                      None, None, Ea, Ec, Ad, Be, None, None, "preference")
+                      None, None, Ea, Ec, None, Be, None, None, "preference")
 
     hide black
     with Dissolve(0.5)
@@ -1260,7 +933,7 @@ label start:
 
     $ log_interaction(session_filename, session_id,
                       "How are you feeling today?", checkin_ans,
-                      None, None, Ea, Ec, Ad, Be, None, None, "checkin")
+                      None, None, Ea, Ec, None, Be, None, None, "checkin")
 
     show hana listening at hana_center_listen
     jump stress_input
@@ -1296,22 +969,18 @@ label stress_input:
             "Not at all":
                 $ stress_responses.append(0)
                 $ ans = "Not at all"
-                $ s_in = 0.0
 
             "Sometimes":
                 $ stress_responses.append(1)
                 $ ans = "Sometimes"
-                $ s_in = 0.33
 
             "Often":
                 $ stress_responses.append(2)
                 $ ans = "Often"
-                $ s_in = 0.67
 
             "Most of the time":
                 $ stress_responses.append(3)
                 $ ans = "Most of the time"
-                $ s_in = 1.0
 
         $ log_interaction(session_filename, session_id, q, ans, stress_responses[-1], None, None, None, None, None, None, None, "dass_q" + str(i+1))
         $ i += 1
@@ -1322,39 +991,21 @@ label stress_input:
     $ max_raw = float(len(stress_questions) * 3)
     $ stress_scale = (raw_score / max_raw) if max_raw > 0 else 0.0
     $ stress_score = int(round(stress_scale * 42.0))
-    $ S = stress_scale
-    $ session_start_stress = stress_score  
-    $ initial_stress_score = stress_score  
-    $ prev_end_stress = user_profile.get("last_stress_score", None) if user_profile else None
-    if is_returning_user and prev_end_stress is not None:
-        $ session_start_stress = prev_end_stress
 
     if stress_score <= 14:
         $ stress_level = "Normal"
-        $ stress_level_desc = stress_level
     elif stress_score <= 18:
         $ stress_level = "Mild"
-        $ stress_level_desc = stress_level
     elif stress_score <= 25:
         $ stress_level = "Moderate"
-        $ stress_level_desc = stress_level
     elif stress_score <= 33:
         $ stress_level = "Severe"
-        $ stress_level_desc = stress_level
     else:
         $ stress_level = "Extremely severe"
-        $ stress_level_desc = stress_level
 
     $ log_interaction(session_filename, session_id, "Stress score summary", str(raw_score),
-                stress_score, stress_level_desc, None, None, None, None, None, None, "stress_summary")
+                stress_score, stress_level, None, None, None, None, None, None, "stress_summary")
     $ aem = run_aem(raw_score)
-    $ Ea = aem["Ea"]
-    $ Ec = aem["Ec"]
-    $ Be = aem["Be"]
-    $ D = aem["D"]
-    $ Ep = aem["Ep"]
-    $ E = aem["E"]
-    $ I = aem["I"]
     $ start_cycle(1)
     if stress_level in ["Normal", "Mild"]:
         jump non_stress_pathway
@@ -1369,15 +1020,64 @@ label non_stress_pathway:
     menu:
         "Family":
             $ ns_q1 = "family"
+            if Bl <= 1:
+                $ resp = _("Okay")
+            elif Bl == 2:
+                $ resp = _("That's good to hear.")
+            elif Bl == 3:
+                $ resp = _("It's good things are going well.")
+            elif Bl == 4:
+                $ resp = _("That sounds positive for you.")
+            else:
+                $ resp = _("It's good to have that support.")
         "Caring for someone":
             $ ns_q1 = "caring"
+            if Bl <= 1:
+                $ resp = _("Okay")
+            elif Bl == 2:
+                $ resp = _("That's good to hear.")
+            elif Bl == 3:
+                $ resp = _("It's good that things are going well.")
+            elif Bl == 4:
+                $ resp = _("That sounds meaningful to you.")
+            else:
+                $ resp = _("It's good to have positive moments.")
         "Work or daily activities":
             $ ns_q1 = "work"
+            if Bl <= 1:
+                $ resp = _("Okay")
+            elif Bl == 2:
+                $ resp = _("That's good to hear.")
+            elif Bl == 3:
+                $ resp = _("It's good things are going well.")
+            elif Bl == 4:
+                $ resp = _("That sounds positive for you.")
+            else:
+                $ resp = _("It's good to have things going well.")
         "My health":
             $ ns_q1 = "health"
+            if Bl <= 1:
+                $ resp = _("Okay")
+            elif Bl == 2:
+                $ resp = _("That's good to hear.")
+            elif Bl == 3:
+                $ resp = _("It's good you're feeling well.")
+            elif Bl == 4:
+                $ resp = _("That sounds positive for you.")
+            else:
+                $ resp = _("It's good that you're doing well.")
         "Things are just okay":
             $ ns_q1 = "okay"
-    $ resp = bl_line(NS_Q1, ns_q1)
+            if Bl <= 1:
+                $ resp = _("Okay")
+            elif Bl == 2:
+                $ resp = _("I understand.")
+            elif Bl == 3:
+                $ resp = _("It's okay for things to feel steady.")
+            elif Bl == 4:
+                $ resp = _("It sounds like things are steady.")
+            else:
+                $ resp = _("Having some stability can be helpful.")
     if ns_q1 == "okay":
         show hana neutral at hana_pos
     else:
@@ -1391,15 +1091,64 @@ label non_stress_pathway:
     menu:
         "Resting":
             $ ns_q2 = "resting"
+            if Bl <= 1:
+                $ resp = _("Okay.")
+            elif Bl == 2:
+                $ resp = _("Rest can be helpful.")
+            elif Bl == 3:
+                $ resp = _("It's good that rest helps.")
+            elif Bl == 4:
+                $ resp = _("Rest seems important for you.")
+            else:
+                $ resp = _("It's good you know what helps you.")
         "Talking to someone":
             $ ns_q2 = "talking"
+            if Bl <= 1:
+                $ resp = _("Okay.")
+            elif Bl == 2:
+                $ resp = _("Talking can help.")
+            elif Bl == 3:
+                $ resp = _("It's good to have someone.")
+            elif Bl == 4:
+                $ resp = _("Having someone to talk to matters.")
+            else:
+                $ resp = _("That support seems important to you.")
         "Doing something I enjoy":
             $ ns_q2 = "enjoy"
+            if Bl <= 1:
+                $ resp = _("Okay.")
+            elif Bl == 2:
+                $ resp = _("That sounds good.")
+            elif Bl == 3:
+                $ resp = _("It's good to enjoy things.")
+            elif Bl == 4:
+                $ resp = _("That sounds meaningful for you.")
+            else:
+                $ resp = _("It's good to have something you enjoy.")
         "Having time alone":
             $ ns_q2 = "alone"
+            if Bl <= 1:
+                $ resp = _("Okay.")
+            elif Bl == 2:
+                $ resp = _("That can be helpful.")
+            elif Bl == 3:
+                $ resp = _("Quiet time can feel good.")
+            elif Bl == 4:
+                $ resp = _("Having your own space seems helpful.")
+            else:
+                $ resp = _("It's good you know what works for you.")
         "My daily routine":
             $ ns_q2 = "routine"
-    $ resp = bl_line(NS_Q2, ns_q2)
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("Routine can be helpful.")
+            elif Bl == 3:
+                $ resp = _("It's good to have a routine.")
+            elif Bl == 4:
+                $ resp = _("Your routine seems to work for you.")
+            else:
+                $ resp = _("Keeping that routine may support you.")
     show hana neutral at hana_pos
     e "[resp!t]"
     $ log_turn("What helps you feel okay?", ns_q2, resp)
@@ -1438,15 +1187,34 @@ label non_stress_pathway:
     menu:
         "I feel good about it.":
             $ ns_feel = "good"
+            if Bl <= 1:
+                $ resp = _("Okay")
+            elif Bl == 2:
+                $ resp = _("That's good to hear.")
+            elif Bl == 3:
+                $ resp = _("It's good you feel that way.")
+            elif Bl == 4:
+                $ resp = _("That sounds positive for you.")
+            else:
+                $ resp = _("It's good to feel good about it.")
         "I feel okay about it.":
             $ ns_feel = "okay"
+            if Bl <= 1:
+                $ resp = _("Okay")
+            elif Bl == 2:
+                $ resp = _("I understand.")
+            elif Bl == 3:
+                $ resp = _("It's okay for things to feel steady.")
+            elif Bl == 4:
+                $ resp = _("It sounds like things are steady.")
+            else:
+                $ resp = _("Having some stability can be helpful.")
         "I'm a little concerned.":
             $ ns_feel = "concerned"
         "I'm worried about it.":
             $ ns_feel = "worried"
 
     if ns_feel in ["good", "okay"]:
-        $ resp = bl_line(NS_TOPIC_ACK, ns_feel)
         if ns_feel == "good":
             show hana smiling at hana_pos
         else:
@@ -1467,15 +1235,64 @@ label stress_pathway:
     menu:
         "Caring for someone":
             $ st_q1 = "caring"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("Take your time.")
+            elif Bl == 3:
+                $ resp = _("Caring can be difficult.")
+            elif Bl == 4:
+                $ resp = _("That sounds really difficult.")
+            else:
+                $ resp = _("You don't have to face it alone.")
         "Family":
             $ st_q1 = "family"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("Take your time.")
+            elif Bl == 3:
+                $ resp = _("Family stress can be difficult.")
+            elif Bl == 4:
+                $ resp = _("That sounds really difficult.")
+            else:
+                $ resp = _("You don't have to face it alone.")
         "Work or money":
             $ st_q1 = "work"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("Take your time.")
+            elif Bl == 3:
+                $ resp = _("That can feel stressful.")
+            elif Bl == 4:
+                $ resp = _("That sounds really stressful.")
+            else:
+                $ resp = _("You don't have to handle it alone.")
         "Health":
             $ st_q1 = "health"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("Take your time.")
+            elif Bl == 3:
+                $ resp = _("That can be difficult.")
+            elif Bl == 4:
+                $ resp = _("That sounds really difficult.")
+            else:
+                $ resp = _("You don't have to face it alone.")
         "Something else":
             $ st_q1 = "other"
-    $ resp = bl_line(ST_Q1, st_q1)
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("Take your time.")
+            elif Bl == 3:
+                $ resp = _("That sounds difficult.")
+            elif Bl == 4:
+                $ resp = _("That sounds really difficult.")
+            else:
+                $ resp = _("It sounds like a lot to deal with.")
     show hana neutral at hana_pos
     e "[resp!t]"
     $ log_turn("What has been stressful lately?", st_q1, resp)
@@ -1487,15 +1304,64 @@ label stress_q2:
     menu:
         "It may get worse":
             $ st_q2 = "worse"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("I understand your concern.")
+            elif Bl == 3:
+                $ resp = _("That uncertainty can be worrying.")
+            elif Bl == 4:
+                $ resp = _("It makes sense to feel concerned.")
+            else:
+                $ resp = _("It can be hard not knowing what will happen.")
         "I can't manage it":
             $ st_q2 = "cant_manage"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("I hear you.")
+            elif Bl == 3:
+                $ resp = _("It sounds like a lot.")
+            elif Bl == 4:
+                $ resp = _("It sounds overwhelming right now.")
+            else:
+                $ resp = _("You don't have to manage everything alone.")
         "It affects other people":
             $ st_q2 = "others"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("I understand.")
+            elif Bl == 3:
+                $ resp = _("You're thinking about others too.")
+            elif Bl == 4:
+                $ resp = _("That sounds like a lot to carry.")
+            else:
+                $ resp = _("It sounds difficult carrying that concern for others.")
         "I don't know what to do":
             $ st_q2 = "unsure"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("That's okay.")
+            elif Bl == 3:
+                $ resp = _("Feeling unsure can be difficult.")
+            elif Bl == 4:
+                $ resp = _("It's understandable to feel stuck.")
+            else:
+                $ resp = _("It can be hard when you're unsure what to do.")
         "Something else":
             $ st_q2 = "other"
-    $ resp = bl_line(ST_Q2, st_q2)
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("Take your time.")
+            elif Bl == 3:
+                $ resp = _("I understand this is difficult.")
+            elif Bl == 4:
+                $ resp = _("It sounds important to you.")
+            else:
+                $ resp = _("It sounds like this is weighing on you.")
     show hana neutral at hana_pos
     e "[resp!t]"
     $ log_turn("What worries you most about it?", st_q2, resp)
@@ -1506,15 +1372,64 @@ label stress_q2:
     menu:
         "I feel tired":
             $ st_q3 = "tired"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("I hear you.")
+            elif Bl == 3:
+                $ resp = _("You sound quite tired.")
+            elif Bl == 4:
+                $ resp = _("That sounds exhausting.")
+            else:
+                $ resp = _("It sounds like this has taken a lot out of you.")
         "I feel overwhelmed":
             $ st_q3 = "overwhelmed"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("Take your time.")
+            elif Bl == 3:
+                $ resp = _("That sounds like a lot.")
+            elif Bl == 4:
+                $ resp = _("That sounds overwhelming.")
+            else:
+                $ resp = _("You don't have to carry everything alone.")
         "I can't focus":
             $ st_q3 = "focus"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("I understand.")
+            elif Bl == 3:
+                $ resp = _("Focusing can be difficult.")
+            elif Bl == 4:
+                $ resp = _("That sounds frustrating.")
+            else:
+                $ resp = _("It sounds hard when this affects your focus.")
         "I can't relax":
             $ st_q3 = "relax"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("I understand.")
+            elif Bl == 3:
+                $ resp = _("It sounds hard to unwind.")
+            elif Bl == 4:
+                $ resp = _("That sounds really draining.")
+            else:
+                $ resp = _("It sounds exhausting not being able to relax.")
         "Something else":
             $ st_q3 = "other"
-    $ resp = bl_line(ST_Q3, st_q3)
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("Take your time.")
+            elif Bl == 3:
+                $ resp = _("That sounds difficult.")
+            elif Bl == 4:
+                $ resp = _("It sounds like this affects you.")
+            else:
+                $ resp = _("It sounds like this is affecting you quite a lot.")
     show hana neutral at hana_pos
     e "[resp!t]"
     $ log_turn("How has this been affecting you?", st_q3, resp)
@@ -1525,15 +1440,64 @@ label stress_q2:
     menu:
         "Resting":
             $ st_q4 = "resting"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("Rest can be helpful.")
+            elif Bl == 3:
+                $ resp = _("It's good that rest helps.")
+            elif Bl == 4:
+                $ resp = _("Making time to rest sounds important.")
+            else:
+                $ resp = _("It sounds like rest really helps you.")
         "Talking to someone":
             $ st_q4 = "talking"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("Talking can help.")
+            elif Bl == 3:
+                $ resp = _("It's good to have someone.")
+            elif Bl == 4:
+                $ resp = _("Having someone to talk to can help.")
+            else:
+                $ resp = _("That support seems important to you.")
         "Doing something I enjoy":
             $ st_q4 = "enjoy"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("That sounds helpful.")
+            elif Bl == 3:
+                $ resp = _("It's good that this helps.")
+            elif Bl == 4:
+                $ resp = _("Making time for yourself can help.")
+            else:
+                $ resp = _("It's good you have something that helps you.")
         "Having time alone":
             $ st_q4 = "alone"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("That can help.")
+            elif Bl == 3:
+                $ resp = _("Some quiet time can help.")
+            elif Bl == 4:
+                $ resp = _("Giving yourself space sounds helpful.")
+            else:
+                $ resp = _("It sounds like having some space helps you.")
         "Nothing really helps":
             $ st_q4 = "nothing"
-    $ resp = bl_line(ST_Q4, st_q4)
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("I hear you.")
+            elif Bl == 3:
+                $ resp = _("That can feel difficult.")
+            elif Bl == 4:
+                $ resp = _("It sounds hard when nothing helps.")
+            else:
+                $ resp = _("It sounds like you may need more support.")
     show hana neutral at hana_pos
     e "[resp!t]"
     $ log_turn("What usually helps you feel better?", st_q4, resp)
@@ -1544,15 +1508,64 @@ label stress_q2:
     menu:
         "Family":
             $ st_q5 = "family"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("That's good to know.")
+            elif Bl == 3:
+                $ resp = _("Family can be helpful.")
+            elif Bl == 4:
+                $ resp = _("It's good you have someone in your family to talk to.")
+            else:
+                $ resp = _("Having family to turn to can be meaningful.")
         "A friend":
             $ st_q5 = "friend"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("That's good to know.")
+            elif Bl == 3:
+                $ resp = _("Having a friend can help.")
+            elif Bl == 4:
+                $ resp = _("It's good you have a friend to talk to.")
+            else:
+                $ resp = _("Having a friend to turn to can be meaningful.")
         "Someone I trust":
             $ st_q5 = "trust"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("That's good to know.")
+            elif Bl == 3:
+                $ resp = _("Having someone you trust can help.")
+            elif Bl == 4:
+                $ resp = _("That support can be important.")
+            else:
+                $ resp = _("Having someone you trust can make a difference.")
         "A professional":
             $ st_q5 = "professional"
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("That's good to know.")
+            elif Bl == 3:
+                $ resp = _("Professional support can be helpful.")
+            elif Bl == 4:
+                $ resp = _("Having professional support can be helpful.")
+            else:
+                $ resp = _("It's good that professional support is available to you.")
         "No one":
             $ st_q5 = "none"
-    $ resp = bl_line(ST_Q5, st_q5)
+            if Bl <= 1:
+                $ resp = _("I'm listening.")
+            elif Bl == 2:
+                $ resp = _("I hear you.")
+            elif Bl == 3:
+                $ resp = _("That can feel difficult.")
+            elif Bl == 4:
+                $ resp = _("It can be hard without support.")
+            else:
+                $ resp = None
     if resp:
         show hana neutral at hana_pos
         e "[resp!t]"
@@ -1601,15 +1614,64 @@ label cycle_2:
             menu:
                 "Caring for someone":
                     $ c2_detail = "caring"
+                    if Bl <= 1:
+                        $ resp = _("Okay.")
+                    elif Bl == 2:
+                        $ resp = _("Thanks for sharing that.")
+                    elif Bl == 3:
+                        $ resp = _("Caring for someone matters.")
+                    elif Bl == 4:
+                        $ resp = _("Caring for someone sounds meaningful to you.")
+                    else:
+                        $ resp = _("It's good to make space to talk about caring.")
                 "Family":
                     $ c2_detail = "family"
+                    if Bl <= 1:
+                        $ resp = _("Okay.")
+                    elif Bl == 2:
+                        $ resp = _("Thanks for sharing that.")
+                    elif Bl == 3:
+                        $ resp = _("Family can mean a lot.")
+                    elif Bl == 4:
+                        $ resp = _("Family sounds important to you.")
+                    else:
+                        $ resp = _("It's good to make space to talk about family.")
                 "Work or money":
                     $ c2_detail = "work"
+                    if Bl <= 1:
+                        $ resp = _("Okay.")
+                    elif Bl == 2:
+                        $ resp = _("Thanks for sharing that.")
+                    elif Bl == 3:
+                        $ resp = _("Work and money matter.")
+                    elif Bl == 4:
+                        $ resp = _("That sounds important to you.")
+                    else:
+                        $ resp = _("It's good to make space to talk about this.")
                 "Health":
                     $ c2_detail = "health"
+                    if Bl <= 1:
+                        $ resp = _("Okay.")
+                    elif Bl == 2:
+                        $ resp = _("Thanks for sharing that.")
+                    elif Bl == 3:
+                        $ resp = _("Health is important.")
+                    elif Bl == 4:
+                        $ resp = _("Your health sounds important to you.")
+                    else:
+                        $ resp = _("It's good to make space for your health.")
                 "Something else":
                     $ c2_detail = "other"
-            $ resp = bl_line(C2_NS_TOPIC, c2_detail)
+                    if Bl <= 1:
+                        $ resp = _("Okay.")
+                    elif Bl == 2:
+                        $ resp = _("Thanks for sharing that.")
+                    elif Bl == 3:
+                        $ resp = _("I'm glad you shared that.")
+                    elif Bl == 4:
+                        $ resp = _("That sounds important to you.")
+                    else:
+                        $ resp = _("It's good to make space for what matters to you.")
             show hana neutral at hana_pos
             e "[resp!t]"
             $ log_turn("What would you like to talk about?", c2_detail, resp)
@@ -1618,7 +1680,16 @@ label cycle_2:
         elif c2_choice == "activity":
             call run_activity from _c2_ns_activity
         else:
-            $ resp = bl_line(C2_CHOICE, "nothing")
+            if Bl <= 1:
+                $ resp = _("Okay.")
+            elif Bl == 2:
+                $ resp = _("That's okay.")
+            elif Bl == 3:
+                $ resp = _("That's okay. We can take it easy.")
+            elif Bl == 4:
+                $ resp = _("That's completely okay.")
+            else:
+                $ resp = _("That's okay. You know what you need right now.")
             show hana neutral at hana_pos
             e "[resp!t]"
             $ log_turn("What would be helpful now?", "nothing", resp)
@@ -1645,13 +1716,52 @@ label cycle_2:
             menu:
                 "What is worrying me":
                     $ c2_detail = "worry"
+                    if Bl <= 1:
+                        $ resp = _("I'm listening.")
+                    elif Bl == 2:
+                        $ resp = _("I understand.")
+                    elif Bl == 3:
+                        $ resp = _("Worries can feel heavy.")
+                    elif Bl == 4:
+                        $ resp = _("It makes sense to focus on that.")
+                    else:
+                        $ resp = _("It sounds like this worry is weighing on you.")
                 "How it is affecting me":
                     $ c2_detail = "impact"
+                    if Bl <= 1:
+                        $ resp = _("I'm listening.")
+                    elif Bl == 2:
+                        $ resp = _("I understand.")
+                    elif Bl == 3:
+                        $ resp = _("It sounds like it affects you a lot.")
+                    elif Bl == 4:
+                        $ resp = _("It makes sense to look at how it affects you.")
+                    else:
+                        $ resp = _("It sounds like this has been hard on you.")
                 "What I can do":
                     $ c2_detail = "can_do"
+                    if Bl <= 1:
+                        $ resp = _("I'm listening.")
+                    elif Bl == 2:
+                        $ resp = _("That's a good focus.")
+                    elif Bl == 3:
+                        $ resp = _("Small steps can help.")
+                    elif Bl == 4:
+                        $ resp = _("Thinking about what you can do sounds helpful.")
+                    else:
+                        $ resp = _("It's good to focus on what is within your control.")
                 "Something else":
                     $ c2_detail = "other"
-            $ resp = bl_line(C2_ST_FOCUS, c2_detail)
+                    if Bl <= 1:
+                        $ resp = _("I'm listening.")
+                    elif Bl == 2:
+                        $ resp = _("Take your time.")
+                    elif Bl == 3:
+                        $ resp = _("That sounds important.")
+                    elif Bl == 4:
+                        $ resp = _("It sounds like that matters to you.")
+                    else:
+                        $ resp = _("It's okay to focus on what matters to you.")
             show hana neutral at hana_pos
             e "[resp!t]"
             $ log_turn("What would you like to focus on?", c2_detail, resp)
@@ -1661,7 +1771,16 @@ label cycle_2:
             call run_activity from _c2_st_activity
         else:
             $ counselling_offered = True
-            $ resp = bl_line(C2_CHOICE, "support")
+            if Bl <= 1:
+                $ resp = _("Okay.")
+            elif Bl == 2:
+                $ resp = _("Okay, here it is.")
+            elif Bl == 3:
+                $ resp = _("Support can be helpful.")
+            elif Bl == 4:
+                $ resp = _("It's good to know where to find support.")
+            else:
+                $ resp = _("It's good to reach out. You don't have to face this alone.")
             show hana neutral at hana_pos
             e "[resp!t]"
             $ log_turn("What would help you most now?", "support", resp)
@@ -1683,7 +1802,16 @@ label cycle_3:
             $ log_turn("Would you like to try a short activity?", "yes")
             call run_activity from _c3_activity
         "No, thanks.":
-            $ resp = bl_line(ACT_ACK, "no")
+            if Bl <= 1:
+                $ resp = _("Okay, that's fine.")
+            elif Bl == 2:
+                $ resp = _("Okay, that's fine.")
+            elif Bl == 3:
+                $ resp = _("That's okay. We can stop here.")
+            elif Bl == 4:
+                $ resp = _("That's completely okay.")
+            else:
+                $ resp = _("That's okay. You know what feels right for you.")
             show hana neutral at hana_pos
             e "[resp!t]"
             $ log_turn("Would you like to try a short activity?", "no", resp)
@@ -1718,13 +1846,52 @@ label c2_help(question):
     menu:
         "Taking a short break":
             $ c2_detail = "break"
+            if Bl <= 1:
+                $ resp = _("Okay.")
+            elif Bl == 2:
+                $ resp = _("A short break can help.")
+            elif Bl == 3:
+                $ resp = _("It's good to give yourself a break.")
+            elif Bl == 4:
+                $ resp = _("A short break sounds helpful for you.")
+            else:
+                $ resp = _("You deserve some time to rest and reset.")
         "Talking to someone":
             $ c2_detail = "talking"
+            if Bl <= 1:
+                $ resp = _("Okay.")
+            elif Bl == 2:
+                $ resp = _("Talking can help.")
+            elif Bl == 3:
+                $ resp = _("It's good to have someone to talk to.")
+            elif Bl == 4:
+                $ resp = _("Talking to someone sounds helpful for you.")
+            else:
+                $ resp = _("Reaching out to someone can make a difference.")
         "Doing something calming":
             $ c2_detail = "calming"
+            if Bl <= 1:
+                $ resp = _("Okay.")
+            elif Bl == 2:
+                $ resp = _("That can help.")
+            elif Bl == 3:
+                $ resp = _("Something calming can be helpful.")
+            elif Bl == 4:
+                $ resp = _("Doing something calming sounds helpful.")
+            else:
+                $ resp = _("It's good to give yourself something calming.")
         "Thinking about my next step":
             $ c2_detail = "next_step"
-    $ resp = bl_line(C2_HELP, c2_detail)
+            if Bl <= 1:
+                $ resp = _("Okay.")
+            elif Bl == 2:
+                $ resp = _("That can help.")
+            elif Bl == 3:
+                $ resp = _("Thinking ahead can be helpful.")
+            elif Bl == 4:
+                $ resp = _("Planning your next step sounds helpful.")
+            else:
+                $ resp = _("Taking one small step at a time can help.")
     show hana neutral at hana_pos
     e "[resp!t]"
     $ log_turn(question, c2_detail, resp)
@@ -1742,7 +1909,16 @@ label run_activity:
         "Body scan":
             $ activity_done = "body_scan"
     $ activity_log.append("c%d:%s" % (cycle, activity_done))
-    $ resp = bl_line(ACT_ACK, "yes")
+    if Bl <= 1:
+        $ resp = _("Okay.")
+    elif Bl == 2:
+        $ resp = _("Okay, let's try it.")
+    elif Bl == 3:
+        $ resp = _("That sounds like a good choice.")
+    elif Bl == 4:
+        $ resp = _("Let's take a few minutes for this together.")
+    else:
+        $ resp = _("Let's take this time for yourself together.")
     show hana neutral at hana_pos
     e "[resp!t]"
     $ log_turn("Which activity would you like to try?", activity_done, resp)
@@ -1757,7 +1933,7 @@ label support_contacts:
     e "Talian HEAL: 15555"
     return
 
-# example techniques 
+# guided activities offered by run_activity
 label deliver_technique(tech):
     $ hana_pos = pick_random_scene_pos()
     python:
@@ -1836,47 +2012,6 @@ label deliver_technique(tech):
         e "Just take a slow breath and notice how your body feels."
         show hana smiling at hana_pos
         e "Well done. Noticing tension can be the first step to letting it go."
-
-    elif tech == "gratitude":
-        show hana smiling at hana_pos
-        e "Let us try a short gratitude exercise."
-        show hana neutral at hana_pos
-        e "When we feel stressed, we often focus on our problems and worries."
-        e "Taking a moment to notice something positive can help us feel more balanced."
-        show hana neutral at hana_pos
-        e "I'd like you to think of one thing that has made you feel good, comfortable, or happy recently."
-        e "It does not have to be something big."
-        e "It could be a nice conversation, a favourite meal, a quiet moment, or something that made you smile."
-        show hana smiling at hana_pos
-        e "Take a moment to think about it."
-        e "Notice how it made you feel, and stay with that feeling for a few seconds."
-        e "Sometimes small positive moments are worth remembering."
-
-    elif tech == "reflection":
-        stop music fadeout 2.0
-        show beachscene at scene_right
-        show hana neutral at hana_left
-        e "Let us try a guided imagery exercise."
-        e "This exercise helps you relax by focusing on a calm place."
-        e "Many people find it helpful during stressful moments."
-        show hana neutral at hana_left
-        e "Take a moment to look at this peaceful beach."
-        e "Imagine you are here, feeling safe and comfortable."
-        show hana neutral at hana_left
-        e "If you are comfortable, you can gently close your eyes or look at the scene."
-        e "Notice what you can see. Look at the colours, the light, and the waves."
-        e "Now listen to the sounds."
-        e "You may hear the waves, birds, or a gentle breeze."
-        e "Now notice how your body feels."
-        e "You may imagine warm sunlight, cool air, or soft sand under your feet."
-        show hana smiling at hana_left
-        e "Take a slow breath in."
-        e "Now slowly breathe out."
-        e "Stay in this peaceful place for a few moments."
-        e "When you feel stressed, you can remember this calm beach and take a short pause."
-        hide beachscene
-        if music_pref:
-            play music "audio/BGM/Hana_lofi.mp3" volume 0.2 fadein 3.0 loop
 
     return
 
