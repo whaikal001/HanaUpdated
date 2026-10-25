@@ -280,7 +280,7 @@ init python:
             "last_end_action": "",
             "music_enabled": None,  # None = never asked; True/False = saved preference
             "last_Bl": None,
-            "aem_history": [],   # per-session S, Ed, H, Ed_adaptive, Bl; feeds habituation
+            "aem_history": [],   # per-session S, Ed, H, Ed_adaptive, Bl (record only)
         }
 
     def load_user_profile(name):
@@ -575,26 +575,30 @@ init python:
             "I": intention_score(E), "Ed": empathic_display(E),
         }
 
-    def previous_session_eds():
-        # Base Ed of each earlier completed session for this user, oldest first.
-        profile = renpy.store.user_profile or {}
+    def previous_cycle_eds():
         eds = []
-        for rec in profile.get("aem_history", []) or []:
+        for rec in renpy.store.cycle_records or []:
             try:
                 eds.append(float(rec["Ed"]))
             except Exception:
                 continue
         return eds
 
+    def checkpoint_adjustment():
+        steps = {"worse": 1, "better": -1}
+        return sum(steps.get(ans, 0) for ans in renpy.store.checkpoint_history or [])
+
     def start_cycle(r):
         st = renpy.store
         Ed = st.aem["Ed"]
         if HANA_CONDITION == "adaptive":
-            H = habituation(previous_session_eds())
+            H = habituation(previous_cycle_eds())
         else:
             H = 0.0
         Ed_adaptive = adaptive_empathic_display(Ed, H)
         Bl = behaviour_generation(Ed_adaptive)
+        if HANA_CONDITION == "adaptive":
+            Bl = int(clamp_range(Bl + checkpoint_adjustment(), 1, 5))
         if HANA_CONDITION == "neutral":
             Bl = 1
 
