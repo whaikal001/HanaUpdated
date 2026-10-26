@@ -133,31 +133,45 @@ init python:
     def make_session_filename():
         return f"session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
-    def log_interaction(session_filename, session_id, question, answer,
-                        score=None, stress_level=None,
-                        Ea=None, Ec=None, Ad=None, Be=None, D=None, Ep=None,
-                        empathy_mode=None, extra=None):
+    SESSION_LOG_HEADER = [
+        "timestamp", "row_type", "session_id", "user_name", "profile_id",
+        "condition", "language", "cycle", "question", "answer", "hana_response",
+        "score", "stress_level", "Ea", "Ec", "Be", "D", "Ep", "S", "E", "I",
+        "Ed", "H", "Ed_adaptive", "Bl", "tag",
+    ]
 
+    def _write_session_rows(session_filename, rows):
         log_path = os.path.join(DROPBOX_LOG_DIR, session_filename)
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        row = [
-            timestamp, session_id, question, answer, score, stress_level,
-            Ea, Ec, Ad, Be, D, Ep, empathy_mode
-        ]
-
         try:
             write_header = not os.path.exists(log_path)
             with open(log_path, "a", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 if write_header:
-                    writer.writerow([
-                        "timestamp","session_id","question","answer","score",
-                        "stress_level","Ea","Ec","Ad","Be","D","Ep","empathy_mode"
-                    ])
-                writer.writerow(row)
+                    writer.writerow(SESSION_LOG_HEADER)
+                writer.writerows(rows)
         except Exception:
-            pass  
+            pass
+
+    def log_interaction(session_filename, session_id, question, answer,
+                        score=None, stress_level=None,
+                        Ea=None, Ec=None, Ad=None, Be=None, D=None, Ep=None,
+                        empathy_mode=None, extra=None):
+
+        st = renpy.store
+        x = extra or {}
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        row = [
+            timestamp, "turn", session_id, getattr(st, "user_name", ""),
+            getattr(st, "hana_active_profile_id", ""), HANA_CONDITION,
+            getattr(st, "session_lang", ""), x.get("cycle"), question, answer,
+            x.get("hana_response"), score, stress_level,
+            Ea, Ec, Be, D, Ep, x.get("S"), x.get("E"), x.get("I"),
+            x.get("Ed"), x.get("H"), x.get("Ed_adaptive"), x.get("Bl"),
+            "" if "Bl" in x else empathy_mode,
+        ]
+        _write_session_rows(session_filename, [row])
+
         try:
             hana_sync_interaction(
                 session_id, session_filename, timestamp, question, answer,
@@ -167,31 +181,14 @@ init python:
         except Exception:
             pass
 
-    SESSION_SUMMARY_HEADER = [
-        "Session time (device)", "User", "Profile ID", "Session ID", "Session #",
+    SESSION_SUMMARY_FIELDS = [
+        "Session start", "Session end", "User", "Profile ID", "Session ID", "Session #",
         "Condition", "Language", "Check-in", "DASS stress raw (0-21)",
         "DASS stress score (0-42)", "Stress level", "S", "Ed", "H", "Ed_adaptive",
         "Bl", "Intention (I)", "Pathway", "Cycle 2 choice", "Activities",
         "Checkpoint 1", "Checkpoint 2", "Final check", "Bl per cycle",
         "Counselling offered", "Turns", "Duration (min)", "Ended by",
     ]
-
-    def _set_aside_old_csv(path, header):
-        try:
-            with open(path, newline="", encoding="utf-8") as f:
-                existing = next(csv.reader(f), None)
-        except Exception:
-            return
-        if existing is None or existing == header:
-            return
-        root, ext = os.path.splitext(path)
-        old, n = root + "_old" + ext, 2
-        while os.path.exists(old):
-            old, n = "%s_old%d%s" % (root, n, ext), n + 1
-        try:
-            os.rename(path, old)
-        except Exception:
-            pass
 
     def log_session_summary(session_filename, session_id, user_name,
                            start_stress_score, end_stress_score,
@@ -205,50 +202,17 @@ init python:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         x = extra or {}
 
-        row = [
-            timestamp, user_name, x.get("participant_id", ""), session_id,
-            x.get("session_index", ""), x.get("condition", ""), x.get("language", ""),
-            x.get("checkin", ""), x.get("dass_raw", ""), start_stress_score, stress_level,
-            x.get("S", ""), x.get("Ed", ""), x.get("H", ""), x.get("Ed_adaptive", ""),
-            x.get("Bl", ""), intention_level, x.get("pathway", ""),
-            x.get("cycle2_choice", ""), x.get("activity", ""),
-            x.get("checkpoint_1", ""), x.get("checkpoint_2", ""), x.get("final_check", ""),
-            empathy_mode, support_need_announced, total_interactions,
-            session_duration_minutes, end_action,
+        values = [
+            x.get("session_start", ""), timestamp, user_name, x.get("participant_id", ""), session_id,x.get("condition", ""),x.get("checkin", ""), x.get("dass_raw", ""), start_stress_score, stress_level,x.get("S", ""), x.get("Ed", ""), x.get("H", ""), x.get("Ed_adaptive", ""),x.get("Bl", ""), intention_level, x.get("pathway", ""),x.get("cycle2_choice", ""), x.get("activity", ""),x.get("checkpoint_1", ""), x.get("checkpoint_2", ""), x.get("final_check", ""),empathy_mode, support_need_announced, total_interactions,
         ]
 
-        log_path = os.path.join(DROPBOX_LOG_DIR, "session_summaries.csv")
-        pending_path = os.path.join(DROPBOX_LOG_DIR, "session_summaries_pending.csv")
-        for target in (log_path, pending_path):
-            try:
-                _set_aside_old_csv(target, SESSION_SUMMARY_HEADER)
-                write_header = not os.path.exists(target)
-                with open(target, "a", newline="", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    if write_header:
-                        writer.writerow(SESSION_SUMMARY_HEADER)
-                    writer.writerow(row)
-                break
-            except Exception:
-                continue
-
-        if cycles:
-            cycle_path = os.path.join(DROPBOX_LOG_DIR, "session_aem_cycles.csv")
-            cycle_keys = ["cycle", "started_at", "Ed", "H", "Ed_adaptive", "Bl", "check_type", "check"]
-            try:
-                write_header = not os.path.exists(cycle_path)
-                with open(cycle_path, "a", newline="", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    if write_header:
-                        writer.writerow(["timestamp", "session_id", "participant_id", "user_name", "condition",
-                                         "stress_level", "dass_raw", "S"] + cycle_keys)
-                    for c in cycles:
-                        writer.writerow([timestamp, session_id, extra.get("participant_id", ""),
-                                         user_name, extra.get("condition", ""),
-                                         stress_level, extra.get("dass_raw", ""), extra.get("S", "")]
-                                        + [c.get(k, "") for k in cycle_keys])
-            except Exception:
-                pass
+        blanks = [""] * (len(SESSION_LOG_HEADER) - 10)
+        rows = [
+            [timestamp, "summary", session_id, user_name, x.get("participant_id", ""),
+             x.get("condition", ""), x.get("language", ""), "", field, value] + blanks
+            for field, value in zip(SESSION_SUMMARY_FIELDS, values)
+        ]
+        _write_session_rows(session_filename, rows)
 
         try:
             sync_extra = dict(extra or {})
@@ -347,9 +311,6 @@ init python:
         return slot
 
     def get_or_create_profile_id(slot_index):
-        # Stable per-profile uuid, created the first time this slot is used and
-        # kept until the slot is reset. A reset+reuse of the same slot yields a
-        # NEW id, so the backend treats it as a different profile (no overwrite).
         key, slot_store, slot = load_profile_slot(slot_index)
         pid = (slot.get("profile_id", "") or "").strip()
         if not pid:
@@ -694,10 +655,13 @@ init python:
             pass
 
         duration = 0.0
+        session_start = ""
         if st.session_start_time is not None:
             duration = (datetime.datetime.now() - st.session_start_time).total_seconds() / 60.0
+            session_start = st.session_start_time.strftime("%Y-%m-%d %H:%M:%S")
 
         extra = {
+            "session_start": session_start,
             "participant_id": st.hana_active_profile_id,
             "language": st.session_lang,
             "condition": HANA_CONDITION,
