@@ -2,7 +2,8 @@ define HANA_BACKEND_URL = "https://wanhaikal001.pythonanywhere.com"
 define HANA_INGEST_TOKEN = "14daa2406e9a4827b48f7ff2dd5fd446"
 define HANA_SYNC_INSECURE = True
 define HANA_SYNC_TIMEOUT = 8
-define HANA_APP_TYPE = "triadic"
+# Arm name the backend files sessions under, from HANA_CONDITION in script.rpy.
+define HANA_APP_TYPES = {"adaptive": "triadic", "strict_empathy": "strict_empathy", "neutral": "neutral"}
 
 init python:
 
@@ -184,7 +185,7 @@ init python:
                               empathy_mode, extra=None):
         payload = {
             "device_id": hana_device_id(),
-            "app_type": HANA_APP_TYPE,
+            "app_type": HANA_APP_TYPES[HANA_CONDITION],
             "user_name": (getattr(renpy.store, "user_name", "") or ""),
             "profile_id": getattr(renpy.store, "hana_active_profile_id", ""),
             "profile_slot": getattr(renpy.store, "hana_selected_profile_slot", ""),
@@ -214,7 +215,7 @@ init python:
             return v
         payload = {
             "device_id": hana_device_id(),
-            "app_type": HANA_APP_TYPE,
+            "app_type": HANA_APP_TYPES[HANA_CONDITION],
             "user_name": user_name or (getattr(renpy.store, "user_name", "") or ""),
             "profile_id": getattr(renpy.store, "hana_active_profile_id", ""),
             "profile_slot": getattr(renpy.store, "hana_selected_profile_slot", ""),

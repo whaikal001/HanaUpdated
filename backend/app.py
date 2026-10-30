@@ -35,6 +35,7 @@ AEM_SUMMARY_FIELDS = [
     "condition", "cycle2_choice",
     "H_1", "H_2", "H_3", "Ed_adaptive_1", "Ed_adaptive_2", "Ed_adaptive_3",
     "Bl_1", "Bl_2", "Bl_3", "checkpoint_1", "checkpoint_2", "final_check",
+    "session_start", "participant_id",
 ]
 
 # One row per interaction cycle (section 19 cycle-level logging).
@@ -215,6 +216,9 @@ def init_db():
         )
         """
     )
+    cycle_cols = {row[1] for row in db.execute("PRAGMA table_info(aem_cycles)")}
+    if "participant_id" not in cycle_cols:
+        db.execute("ALTER TABLE aem_cycles ADD COLUMN participant_id TEXT")
 
     # Same for interactions: tag each row with the study arm + profile id/slot.
     inter_cols = {row[1] for row in db.execute("PRAGMA table_info(interactions)")}
@@ -414,12 +418,13 @@ def api_summary():
                 """
                 INSERT INTO aem_cycles
                     (device_id, app_type, condition, user_name, profile_id, profile_slot,
-                     session_id, client_ts, stress_level, dass_raw, S,
+                     participant_id, session_id, client_ts, stress_level, dass_raw, S,
                      cycle, started_at, Ed, H, Ed_adaptive, Bl, check_type, "check")
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (data.get("device_id"), data.get("app_type"), data.get("condition"),
-                 data.get("user_name"), profile_id, slot, data.get("session_id"),
+                 data.get("user_name"), profile_id, slot, _s(data.get("participant_id")),
+                 data.get("session_id"),
                  data.get("client_ts"), data.get("stress_level"),
                  _s(data.get("dass_raw")), _s(data.get("S")))
                 + tuple(_s(c.get(k)) for k in AEM_CYCLE_FIELDS),
@@ -448,6 +453,16 @@ def _s(v):
     if v is None:
         return None
     return str(v)
+
+
+@app.template_filter("num")
+def _num(v):
+    """Show model values to 3 decimals on the admin pages; blanks stay blank."""
+    if v is None or v == "":
+        return ""
+    if isinstance(v, float):
+        return "%.3f" % v
+    return v
 
 @app.route("/")
 def index():
@@ -532,33 +547,137 @@ def user_detail(device_id):
     )
 
 
+# --------------------------------------------------------------------------- #
+# Per-session log in the same one-file layout the game writes on the device
+# (game/script.rpy SESSION_LOG_HEADER / SESSION_SUMMARY_FIELDS), so a session
+# downloaded here can be compared line for line with the tester's local file.
+# --------------------------------------------------------------------------- #
+
+SESSION_LOG_HEADER = [
+    "Participant_ID", "Session_ID", "Condition",
+    "Timestamp", "Cycle", "Stage", "Duration",
+    "HANA_Question", "User_Response", "HANA_Response",
+    "Ea", "Ec", "Be", "D", "Ep", "E",
+    "I",
+    "Ed", "H", "Ed_Adaptive",
+    "Behaviour_Profile",
+]
+
+# Study arm codes, as in the game's log file name and Condition column.
+CONDITION_CODES = {"adaptive": "ADP", "strict_empathy": "TRI", "neutral": "NEU"}
+
+# (label in the game's file, aem_history column)
+SESSION_SUMMARY_FIELDS = [
+    ("Session start", "session_start"), ("Session end", "client_ts"),
+    ("User", "user_name"), ("Participant ID", "participant_id"), ("Session ID", "session_id"),
+    ("Condition", "condition"),
+    ("Check-in", "checkin"), ("DASS stress raw (0-21)", "dass_raw"),
+    ("DASS stress score (0-42)", "dass_score"), ("Stress level", "stress_level"),
+    ("S", "S"), ("Ed", "Ed"), ("H", "H"), ("Ed_adaptive", "Ed_adaptive"), ("Bl", "Bl"),
+    ("Intention (I)", "intention"), ("Pathway", "pathway"),
+    ("Cycle 2 choice", "cycle2_choice"), ("Activities", "activity"),
+    ("Checkpoint 1", "checkpoint_1"), ("Checkpoint 2", "checkpoint_2"),
+    ("Final check", "final_check"), ("Bl per cycle", "bl_path"),
+    ("Counselling offered", "counselling_offered"), ("Turns", "total_interactions"),
+]
+
+
+def _session_log_rows(db, device_id, session_id):
+    """Turn rows then summary rows, as dicts keyed by SESSION_LOG_HEADER, plus
+    the user's name and the log's file name on the device."""
+    turns = []
+    for r in db.execute(
+        "SELECT * FROM interactions WHERE device_id = ? AND session_id = ? "
+        "ORDER BY client_ts, id",
+        (device_id, session_id),
+    ):
+        r = dict(r)
+        try:
+            x = json.loads(r.get("extra") or "{}")
+        except (TypeError, ValueError):
+            x = {}
+        if not isinstance(x, dict):
+            x = {}
+        turns.append((r, x))
+    summary = db.execute(
+        "SELECT * FROM aem_history WHERE device_id = ? AND session_id = ? "
+        "ORDER BY id DESC LIMIT 1",
+        (device_id, session_id),
+    ).fetchone()
+    summary = dict(summary) if summary else {}
+
+    rows = [_log_row(r, x) for r, x in turns]
+    if summary:
+        participant_id = summary.get("participant_id")
+        code = CONDITION_CODES.get(summary.get("condition"), summary.get("condition"))
+        for label, col in SESSION_SUMMARY_FIELDS:
+            value = code if col == "condition" else summary.get(col)
+            rows.append({
+                "Participant_ID": participant_id, "Session_ID": summary["session_id"],
+                "Condition": code, "Timestamp": summary["client_ts"], "Cycle": "",
+                "Stage": "Summary", "Duration": "",
+                "HANA_Question": label, "User_Response": value,
+            })
+    name = turns[0][0]["user_name"] if turns else summary.get("user_name", "")
+    session_file = turns[0][0]["session_file"] if turns else ""
+    return rows, name, session_file
+
+
+def _log_row(r, x):
+    """One interactions row (plus its `extra` JSON) in SESSION_LOG_HEADER layout."""
+    return {
+        "Participant_ID": x.get("participant_id"), "Session_ID": r["session_id"],
+        "Condition": CONDITION_CODES.get(x.get("condition"), x.get("condition")),
+        "Timestamp": r["client_ts"], "Cycle": x.get("cycle"), "Stage": x.get("stage"),
+        "Duration": x.get("duration"),
+        "HANA_Question": r["question"], "User_Response": r["answer"],
+        "HANA_Response": x.get("hana_response"),
+        "Ea": r["Ea"], "Ec": r["Ec"], "Be": r["Be"], "D": r["D"], "Ep": r["Ep"],
+        "E": x.get("E"), "I": x.get("I"),
+        "Ed": x.get("Ed"), "H": x.get("H"), "Ed_Adaptive": x.get("Ed_adaptive"),
+        "Behaviour_Profile": x.get("Bl"),
+    }
+
+
 @app.route("/session/<device_id>/<session_id>")
 @login_required
 def session_detail(device_id, session_id):
-    db = get_db()
-    rows = db.execute(
-        """
-        SELECT * FROM interactions
-        WHERE device_id = ? AND session_id = ?
-        ORDER BY id ASC
-        """,
-        (device_id, session_id),
-    ).fetchall()
-    name = rows[0]["user_name"] if rows else ""
+    rows, name, session_file = _session_log_rows(get_db(), device_id, session_id)
     return render_template(
         "session.html", rows=rows, device_id=device_id,
-        session_id=session_id, name=name,
+        session_id=session_id, name=name, session_file=session_file,
     )
 
 
-# The three study arms, as stored in `app_type`, with display labels.
+@app.route("/session/<device_id>/<session_id>.csv")
+@login_required
+def session_log_csv(device_id, session_id):
+    rows, name, session_file = _session_log_rows(get_db(), device_id, session_id)
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(SESSION_LOG_HEADER)
+    for row in rows:
+        writer.writerow([row.get(k) for k in SESSION_LOG_HEADER])
+    # Same file name as on the device, e.g. HANA_P01_ADP_20261026_144717.csv
+    filename = session_file or "session_%s.csv" % session_id
+    return Response(
+        out.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=%s" % filename},
+    )
+
+
+# The study arms, as stored in `app_type`, with display labels named as in the
+# study design (Adaptive / Triadic / Baseline) and the log file codes. The
+# stored values are older names: `triadic` is the Adaptive arm, and
+# `strict_empathy` the Triadic one. `adaptive` is the separate older HANAAdaptive app.
 ARM_LABELS = [
-    ("triadic", "Adaptive Triadic Empathy"),
-    ("adaptive", "Adaptive"),
-    ("strict_empathy", "Fixed (strict empathy)"),
-    ("neutral", "Neutral (baseline)"),
+    ("triadic", "Adaptive (ADP)"),
+    ("strict_empathy", "Triadic (TRI)"),
+    ("neutral", "Baseline (NEU)"),
+    ("adaptive", "Adaptive, old app"),
 ]
-ARM_SHORT = {"triadic": "Adaptive Triadic", "adaptive": "Adaptive", "strict_empathy": "Fixed", "neutral": "Neutral"}
+ARM_SHORT = {"triadic": "Adaptive", "strict_empathy": "Triadic", "neutral": "Baseline", "adaptive": "Adaptive old app"}
 
 
 @app.route("/summaries")
@@ -627,10 +746,11 @@ def delete_summaries_bulk():
 @app.route("/user/<device_id>/delete", methods=["POST"])
 @login_required
 def delete_user(device_id):
-    """Remove a device/user entirely: all their interactions and summaries."""
+    """Remove a device/user entirely: all their interactions, summaries and
+    AEM history, so they also drop out of the Excel exports."""
     db = get_db()
-    db.execute("DELETE FROM interactions WHERE device_id = ?", (device_id,))
-    db.execute("DELETE FROM summaries WHERE device_id = ?", (device_id,))
+    for table in ("interactions", "summaries", "aem_history", "aem_cycles"):
+        db.execute("DELETE FROM %s WHERE device_id = ?" % table, (device_id,))
     db.commit()
     return redirect(url_for("dashboard"))
 
@@ -670,7 +790,9 @@ ARM_SHEET_ORDER = [k for k, _ in ARM_LABELS]
 # unlike `summaries`, which keeps only the latest session per profile).
 TRIADIC_SESSION_COLUMNS = [
     ("received_at", "Received (server, UTC)"),
-    ("client_ts", "Session time (device)"),
+    ("session_start", "Session start (device)"),
+    ("client_ts", "Session end (device)"),
+    ("participant_id", "Participant ID"),
     ("user_name", "User"),
     ("profile_id", "Profile ID"),
     ("device_id", "Device ID"),
@@ -704,8 +826,10 @@ TRIADIC_SESSION_COLUMNS = [
 TRIADIC_CYCLE_COLUMNS = [
     ("received_at", "Received (server, UTC)"),
     ("client_ts", "Session time (device)"),
+    ("participant_id", "Participant ID"),
     ("user_name", "User"),
     ("profile_id", "Profile ID"),
+    ("device_id", "Device ID"),
     ("session_id", "Session ID"),
     ("condition", "Condition"),
     ("stress_level", "Stress level"),
@@ -751,8 +875,10 @@ LEGACY_SUMMARY_COLUMNS = [
 # then the columns only one kind of arm fills.
 ALL_ARMS_COLUMNS = [
     ("arm", "Arm"),
-    ("client_ts", "Session time (device)"),
+    ("session_start", "Session start (device)"),
+    ("client_ts", "Session end (device)"),
     ("received_at", "Received (server, UTC)"),
+    ("participant_id", "Participant ID"),
     ("user_name", "User"),
     ("profile_id", "Profile ID"),
     ("device_id", "Device ID"),
@@ -791,7 +917,13 @@ ALL_ARMS_COLUMNS = [
     ("support_need_announced", "Support announced"),
 ]
 
-INTERACTION_COLUMNS = [
+# Participant numbers restart on every device, so Device_ID comes first.
+INTERACTION_COLUMNS = [("Device_ID", "Device_ID")] + [(k, k) for k in SESSION_LOG_HEADER] + [
+    ("User_Name", "User_Name"), ("Received", "Received (server, UTC)"),
+]
+
+# Layout for rows from older builds, which don't send the log columns above.
+OLDER_INTERACTION_COLUMNS = [
     ("received_at", "Received (server, UTC)"),
     ("client_ts", "Time (device)"),
     ("user_name", "User"),
@@ -806,7 +938,7 @@ INTERACTION_COLUMNS = [
     ("empathy_mode", "Mode"),
 ]
 # Keys from the interactions `extra` JSON that get their own column first.
-INTERACTION_EXTRA_ORDER = [
+OLDER_INTERACTION_EXTRA_ORDER = [
     "cycle", "S", "E", "I", "Ed", "H", "Ed_adaptive", "Bl", "hana_response",
     "condition", "language",
 ]
@@ -817,13 +949,24 @@ NUMERIC_COLUMNS = {
     "intention", "total_interactions", "session_duration_minutes", "cycle",
     "attempts", "start_stress_score", "end_stress_score", "stress_improvement",
     "empathy_E", "score", "Ea", "Ec", "Ad", "Be", "D", "Ep", "E", "I",
+    "Cycle", "Duration", "Ed_Adaptive",
 }
 
 
-def _arm_title(arm):
-    title = dict(ARM_LABELS).get(arm, arm or "untagged")
+def _sheet_name(title):
     # Excel caps sheet names at 31 chars and forbids []:*?/\
     return "".join(ch for ch in title if ch not in "[]:*?/\\")[:31]
+
+
+def _arm_title(arm):
+    return _sheet_name(dict(ARM_LABELS).get(arm, arm or "untagged"))
+
+
+def _filled_columns(columns, rows):
+    """Drop columns no row fills; keep them all while a sheet has no rows."""
+    if not rows:
+        return columns
+    return [(c, h) for c, h in columns if any(r.get(c) not in (None, "") for r in rows)]
 
 
 def _cell(col, value):
@@ -884,9 +1027,13 @@ def export_summaries_xlsx():
         "SELECT * FROM aem_history ORDER BY COALESCE(client_ts, received_at), id")]
     cycles = [dict(r) for r in db.execute(
         "SELECT * FROM aem_cycles ORDER BY COALESCE(client_ts, received_at), id, cycle")]
+    # Sessions from the current game (any arm) are in aem_history; the legacy
+    # sheets keep only older builds' summaries, so nothing is counted twice.
+    in_history = {(r["device_id"], r["session_id"]) for r in history}
     legacy = [dict(r) for r in db.execute(
         "SELECT * FROM summaries WHERE COALESCE(app_type, '') != 'triadic' "
-        "ORDER BY COALESCE(client_ts, received_at), id")]
+        "ORDER BY COALESCE(client_ts, received_at), id")
+        if (r["device_id"], r["session_id"]) not in in_history]
 
     # Bring both layouts onto the shared column names for the combined sheet.
     combined = [dict(r, arm=_arm_title(r.get("app_type") or "triadic"),
@@ -900,11 +1047,23 @@ def export_summaries_xlsx():
     wb = Workbook()
     wb.remove(wb.active)
     _add_sheet(wb, "All arms", ALL_ARMS_COLUMNS, combined)
-    # The Adaptive Triadic sheets always follow, even when still empty.
-    _add_sheet(wb, "Adaptive Triadic - sessions", TRIADIC_SESSION_COLUMNS, history)
-    _add_sheet(wb, "Adaptive Triadic - cycles", TRIADIC_CYCLE_COLUMNS, cycles)
+    # Sessions + cycles sheets per arm. The Adaptive Triadic pair always comes
+    # first, even when still empty; the other arms only skip the AEM values
+    # they never compute (strict empathy: Ed / H / Ed_adaptive, baseline: all).
+    hist_by_arm = dict(_rows_by_arm([dict(r, app_type=r.get("app_type") or "triadic") for r in history]))
+    cyc_by_arm = dict(_rows_by_arm([dict(r, app_type=r.get("app_type") or "triadic") for r in cycles]))
+    for arm in ["triadic"] + [a for a in hist_by_arm if a != "triadic"]:
+        short = ARM_SHORT.get(arm, arm)
+        arm_hist, arm_cyc = hist_by_arm.get(arm, []), cyc_by_arm.get(arm, [])
+        session_cols, cycle_cols = TRIADIC_SESSION_COLUMNS, TRIADIC_CYCLE_COLUMNS
+        if arm != "triadic":
+            session_cols = _filled_columns(session_cols, arm_hist)
+            cycle_cols = _filled_columns(cycle_cols, arm_cyc)
+        _add_sheet(wb, _sheet_name(short + " - sessions"), session_cols, arm_hist)
+        _add_sheet(wb, _sheet_name(short + " - cycles"), cycle_cols, arm_cyc)
     for arm, rows in _rows_by_arm(legacy):
-        _add_sheet(wb, _arm_title(arm), LEGACY_SUMMARY_COLUMNS, rows)
+        _add_sheet(wb, _sheet_name(ARM_SHORT.get(arm, arm or "untagged") + " - older build"),
+                   LEGACY_SUMMARY_COLUMNS, rows)
     return _xlsx_response(wb, "hana_summaries.xlsx")
 
 
@@ -914,29 +1073,42 @@ def export_interactions_xlsx():
     from openpyxl import Workbook
 
     db = get_db()
-    rows = []
+    rows, older = [], []
     for r in db.execute("SELECT * FROM interactions ORDER BY id ASC"):
-        row = dict(r)
+        r = dict(r)
         try:
-            extra = json.loads(row.get("extra") or "{}")
+            extra = json.loads(r.get("extra") or "{}")
         except (TypeError, ValueError):
             extra = {}
-        if isinstance(extra, dict):
+        if not isinstance(extra, dict):
+            extra = {}
+        if "stage" in extra:
+            # Current game: the same columns as its session log file.
+            row = _log_row(r, extra)
+            row.update(Device_ID=r["device_id"], User_Name=r["user_name"],
+                       Received=r["received_at"], app_type=r["app_type"])
+            rows.append(row)
+        else:
             for k, v in extra.items():
-                row.setdefault(k, v)
-        rows.append(row)
+                r.setdefault(k, v)
+            older.append(r)
 
-    known = {c for c, _ in INTERACTION_COLUMNS} | {
-        "id", "app_type", "profile_slot", "session_file", "extra"}
     wb = Workbook()
     wb.remove(wb.active)
     for arm, arm_rows in _rows_by_arm(rows):
+        _add_sheet(wb, _arm_title(arm), INTERACTION_COLUMNS, arm_rows)
+    # Rows from older builds (or logged before the current log layout) keep
+    # their original columns, on their own sheet per arm.
+    known = {c for c, _ in OLDER_INTERACTION_COLUMNS} | {
+        "id", "app_type", "profile_slot", "session_file", "extra"}
+    for arm, arm_rows in _rows_by_arm(older):
         # Each arm logs a different set of extra fields, so the columns are
         # built from what that arm's rows actually contain.
         extra_keys = {k for r in arm_rows for k in r if k not in known}
-        ordered = [k for k in INTERACTION_EXTRA_ORDER if k in extra_keys]
+        ordered = [k for k in OLDER_INTERACTION_EXTRA_ORDER if k in extra_keys]
         ordered += sorted(extra_keys - set(ordered))
-        _add_sheet(wb, _arm_title(arm), INTERACTION_COLUMNS + [(k, k) for k in ordered], arm_rows)
+        _add_sheet(wb, _sheet_name(ARM_SHORT.get(arm, arm or "untagged") + " - older build"),
+                   OLDER_INTERACTION_COLUMNS + [(k, k) for k in ordered], arm_rows)
     if not wb.sheetnames:
         _add_sheet(wb, "No data yet", INTERACTION_COLUMNS, [])
     return _xlsx_response(wb, "hana_interactions.xlsx")

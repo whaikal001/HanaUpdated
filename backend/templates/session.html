@@ -8,36 +8,63 @@
 </div>
 <h1>Interaction log <span class="tag mono">{{ session_id }}</span></h1>
 
+{% set turns = rows | rejectattr('Stage', 'equalto', 'Summary') | list %}
+{% set summary = rows | selectattr('Stage', 'equalto', 'Summary') | list %}
+
 <div class="panel">
-    {% if rows %}
+    <p>
+        <a href="{{ url_for('session_log_csv', device_id=device_id, session_id=session_id) }}">⬇ Download this session's log{% if session_file %} ({{ session_file }}){% else %} (.csv){% endif %}</a>
+        — the same file the game saves on the device.
+    </p>
+</div>
+
+<div class="panel">
+    {% if turns %}
     <table>
         <thead><tr>
-            <th>Time</th><th>Question / event</th><th>Answer</th>
-            <th>Score</th><th>Stress</th>
-            <th>Ea</th><th>Ec</th><th>Ad</th><th>Be</th><th>D</th><th>Ep</th>
-            <th>Mode</th>
+            <th>Participant</th><th>Condition</th>
+            <th>Time</th><th>Cycle</th><th>Stage</th><th>Duration (s)</th>
+            <th>HANA question</th><th>User response</th><th>HANA response</th>
+            <th>Ea</th><th>Ec</th><th>Be</th><th>D</th><th>Ep</th><th>E</th>
+            <th>I</th><th>Ed</th><th>H</th><th>Ed_Adaptive</th><th>Behaviour</th>
         </tr></thead>
         <tbody>
-        {% for r in rows %}
+        {% for r in turns %}
             <tr>
-                <td class="mono">{{ r['client_ts'] }}</td>
-                <td class="q">{{ r['question'] }}</td>
-                <td class="a">{{ r['answer'] }}</td>
-                <td>{{ r['score'] if r['score'] is not none }}</td>
-                <td>{{ r['stress_level'] if r['stress_level'] is not none }}</td>
-                <td class="mono">{{ '%.3f'|format(r['Ea']) if r['Ea'] is not none }}</td>
-                <td class="mono">{{ '%.3f'|format(r['Ec']) if r['Ec'] is not none }}</td>
-                <td class="mono">{{ '%.3f'|format(r['Ad']) if r['Ad'] is not none }}</td>
-                <td class="mono">{{ '%.3f'|format(r['Be']) if r['Be'] is not none }}</td>
-                <td class="mono">{{ '%.3f'|format(r['D']) if r['D'] is not none }}</td>
-                <td class="mono">{{ '%.3f'|format(r['Ep']) if r['Ep'] is not none }}</td>
-                <td>{{ r['empathy_mode'] }}</td>
+                <td class="mono">{{ r['Participant_ID'] or '' }}</td>
+                <td>{{ r['Condition'] or '' }}</td>
+                <td class="mono">{{ r['Timestamp'] }}</td>
+                <td>{{ r['Cycle'] if r['Cycle'] is not none }}</td>
+                <td>{{ r['Stage'] or '' }}</td>
+                <td class="mono">{{ r['Duration'] if r['Duration'] is not none }}</td>
+                <td class="q">{{ r['HANA_Question'] }}</td>
+                <td class="a">{{ r['User_Response'] }}</td>
+                <td>{{ r['HANA_Response'] or '' }}</td>
+                {% for k in ['Ea', 'Ec', 'Be', 'D', 'Ep', 'E', 'I', 'Ed', 'H', 'Ed_Adaptive'] %}
+                <td class="mono">{{ r[k] | num }}</td>
+                {% endfor %}
+                <td>{{ r['Behaviour_Profile'] or '' }}</td>
             </tr>
         {% endfor %}
         </tbody>
     </table>
     {% else %}
     <div class="empty">No rows for this session.</div>
+    {% endif %}
+</div>
+
+<div class="panel">
+    <h2>Session summary</h2>
+    {% if summary %}
+    <table>
+        <tbody>
+        {% for r in summary %}
+            <tr><th>{{ r['HANA_Question'] }}</th><td class="mono">{{ r['User_Response'] if r['User_Response'] is not none }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty">No summary yet: the session was not finished, or its summary has not arrived.</div>
     {% endif %}
 </div>
 {% endblock %}

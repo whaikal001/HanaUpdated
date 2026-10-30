@@ -130,18 +130,35 @@ init python:
     def generate_session_id():
         return str(uuid.uuid4())[:8]
 
-    def make_session_filename():
-        return f"session_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    CONDITION_CODES = {
+        "adaptive": "Adaptive",
+        "strict_empathy": "Triadic",
+        "neutral": "Neutral",
+    }
+
+    def make_session_filename(participant_id):
+        condition_code = CONDITION_CODES.get(HANA_CONDITION, HANA_CONDITION)
+        participant_id = str(participant_id or "unknown")
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        return "HANA_%s_%s_%s.csv" % (
+            participant_id, condition_code, timestamp,
+        )
+
+    def _log_filename(session_filename, stage):
+        stem, extension = os.path.splitext(session_filename)
+        return "%s_%s%s" % (stem, stage, extension or ".csv")
 
     SESSION_LOG_HEADER = [
-        "timestamp", "row_type", "session_id", "user_name", "profile_id",
-        "condition", "language", "cycle", "question", "answer", "hana_response",
-        "score", "stress_level", "Ea", "Ec", "Be", "D", "Ep", "S", "E", "I",
-        "Ed", "H", "Ed_adaptive", "Bl", "tag",
+        "Participant_ID", "Session_ID", "Condition", "Timestamp", "Cycle",
+        "Stage", "Duration", "HANA_Question", "User_Response", "HANA_Response",
+        "Ea", "Ec", "Be", "D", "Ep", "E", "I", "Ed", "H", "Ed_Adaptive",
+        "Behaviour_Profile",
     ]
 
-    def _write_session_rows(session_filename, rows):
-        log_path = os.path.join(DROPBOX_LOG_DIR, session_filename)
+    def _write_session_rows(session_filename, rows, stage):
+        log_path = os.path.join(
+            DROPBOX_LOG_DIR, _log_filename(session_filename, stage),
+        )
         try:
             write_header = not os.path.exists(log_path)
             with open(log_path, "a", newline="", encoding="utf-8") as f:
@@ -162,15 +179,14 @@ init python:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         row = [
-            timestamp, "turn", session_id, getattr(st, "user_name", ""),
-            getattr(st, "hana_active_profile_id", ""), HANA_CONDITION,
-            getattr(st, "session_lang", ""), x.get("cycle"), question, answer,
-            x.get("hana_response"), score, stress_level,
-            Ea, Ec, Be, D, Ep, x.get("S"), x.get("E"), x.get("I"),
-            x.get("Ed"), x.get("H"), x.get("Ed_adaptive"), x.get("Bl"),
-            "" if "Bl" in x else empathy_mode,
+            getattr(st, "hana_active_profile_id", ""), session_id,
+            CONDITION_CODES.get(HANA_CONDITION, HANA_CONDITION), timestamp,
+            x.get("cycle"), x.get("stage", "Interaction"), x.get("duration"),
+            question, answer, x.get("hana_response"), Ea, Ec, Be, D, Ep,
+            x.get("E"), x.get("I"), x.get("Ed"), x.get("H"),
+            x.get("Ed_adaptive"), x.get("Bl", empathy_mode),
         ]
-        _write_session_rows(session_filename, [row])
+        _write_session_rows(session_filename, [row], "interaction")
 
         try:
             hana_sync_interaction(
@@ -203,16 +219,29 @@ init python:
         x = extra or {}
 
         values = [
-            x.get("session_start", ""), timestamp, user_name, x.get("participant_id", ""), session_id,x.get("condition", ""),x.get("checkin", ""), x.get("dass_raw", ""), start_stress_score, stress_level,x.get("S", ""), x.get("Ed", ""), x.get("H", ""), x.get("Ed_adaptive", ""),x.get("Bl", ""), intention_level, x.get("pathway", ""),x.get("cycle2_choice", ""), x.get("activity", ""),x.get("checkpoint_1", ""), x.get("checkpoint_2", ""), x.get("final_check", ""),empathy_mode, support_need_announced, total_interactions,
+            x.get("session_start", ""), timestamp, user_name,
+            x.get("participant_id", ""), session_id, x.get("session_index", ""),
+            x.get("condition", HANA_CONDITION), x.get("language", ""),
+            x.get("checkin", ""), x.get("dass_raw", ""), start_stress_score,
+            stress_level, x.get("S", ""), x.get("Ed", ""), x.get("H", ""),
+            x.get("Ed_adaptive", ""), x.get("Bl", ""), intention_level,
+            x.get("pathway", ""), x.get("cycle2_choice", ""),
+            x.get("activity", ""), x.get("checkpoint_1", ""),
+            x.get("checkpoint_2", ""), x.get("final_check", ""),
+            empathy_mode, support_need_announced, total_interactions,
+            session_duration_minutes, end_action,
         ]
 
-        blanks = [""] * (len(SESSION_LOG_HEADER) - 10)
         rows = [
-            [timestamp, "summary", session_id, user_name, x.get("participant_id", ""),
-             x.get("condition", ""), x.get("language", ""), "", field, value] + blanks
+            [
+                x.get("participant_id", ""), session_id,
+                CONDITION_CODES.get(x.get("condition", HANA_CONDITION),
+                                    x.get("condition", HANA_CONDITION)),
+                timestamp, "", "Summary", "", field, value, "",
+            ] + [""] * (len(SESSION_LOG_HEADER) - 10)
             for field, value in zip(SESSION_SUMMARY_FIELDS, values)
         ]
-        _write_session_rows(session_filename, rows)
+        _write_session_rows(session_filename, rows, "summary")
 
         try:
             sync_extra = dict(extra or {})
@@ -242,9 +271,9 @@ init python:
             "last_stress_level": "unknown",
             "last_technique": None,
             "last_end_action": "",
-            "music_enabled": None,  # None = never asked; True/False = saved preference
+            "music_enabled": None,  
             "last_Bl": None,
-            "aem_history": [],   # per-session S, Ed, H, Ed_adaptive, Bl (record only)
+            "aem_history": [],   
         }
 
     def load_user_profile(name):
@@ -311,10 +340,9 @@ init python:
         return slot
 
     def get_or_create_profile_id(slot_index):
+        pid = "P%02d" % int(slot_index)
         key, slot_store, slot = load_profile_slot(slot_index)
-        pid = (slot.get("profile_id", "") or "").strip()
-        if not pid:
-            pid = uuid.uuid4().hex
+        if slot.get("profile_id") != pid:
             save_profile_slot(slot_index, {"profile_id": pid})
         return pid
 
@@ -508,6 +536,21 @@ init python:
             return 4
         return 5
 
+    def load_prior_h(profile):
+        prior_h = 0.0
+        for rec in profile.get("aem_history", []) or []:
+            if rec.get("condition") != HANA_CONDITION:
+                continue
+            try:
+                cycles = rec.get("cycles", []) or []
+                if cycles:
+                    prior_h = float(cycles[-1].get("H", 0.0))
+                else:
+                    prior_h = float(rec.get("H", 0.0))
+            except (TypeError, ValueError):
+                continue
+        return prior_h
+
     def run_aem(S_raw):
         S = S_raw / 21.0
         N = int(round(T / dt)) + 1
@@ -535,7 +578,6 @@ init python:
             "S": S, "Ea": Ea, "Ec": Ec, "Be": Be, "D": D, "Ep": Ep, "E": E,
             "I": intention_score(E), "Ed": empathic_display(E),
         }
-
     def previous_cycle_eds():
         eds = []
         for rec in renpy.store.cycle_records or []:
@@ -545,21 +587,16 @@ init python:
                 continue
         return eds
 
-    def checkpoint_adjustment():
-        steps = {"worse": 1, "better": -1}
-        return sum(steps.get(ans, 0) for ans in renpy.store.checkpoint_history or [])
-
     def start_cycle(r):
         st = renpy.store
         Ed = st.aem["Ed"]
         if HANA_CONDITION == "adaptive":
-            H = habituation(previous_cycle_eds())
+            current_cycle_eds = previous_cycle_eds()
+            H = st.prior_h + habituation(current_cycle_eds)
         else:
             H = 0.0
         Ed_adaptive = adaptive_empathic_display(Ed, H)
         Bl = behaviour_generation(Ed_adaptive)
-        if HANA_CONDITION == "adaptive":
-            Bl = int(clamp_range(Bl + checkpoint_adjustment(), 1, 5))
         if HANA_CONDITION == "neutral":
             Bl = 1
 
@@ -760,7 +797,7 @@ default st_q5 = ""
 default hana_selected_profile_slot = 1
 default hana_active_profile_id = ""
 default hana_pos = hana_mid
-
+default prior_h = 0.0
 # --- Flow Starts ---
 
 label start:
@@ -785,7 +822,6 @@ label start:
     # nak clear slot yang session tak settle abis
     $ cleanup_unfinished_profile_slots()
     $ session_id = generate_session_id()
-    $ session_filename = make_session_filename()
     $ Ea = Ea0
     $ Ec = Ec0
     $ Be = Be0
@@ -816,6 +852,7 @@ label start:
     $ user_name = selected_slot_data.get("name", "").strip()
     $ hana_selected_profile_slot = selected_slot
     $ hana_active_profile_id = get_or_create_profile_id(selected_slot)
+    $ session_filename = make_session_filename(hana_active_profile_id)
     $ hana_pos = hana_mid
 
     if user_name:
@@ -868,6 +905,7 @@ label start:
             e "Okay, we'll continue without music."
 
     $ user_profile = save_user_profile(user_name, {"music_enabled": music_pref})
+    $ prior_h = load_prior_h(user_profile) if HANA_CONDITION == "adaptive" else 0.0
     $ log_interaction(session_filename, session_id,
                       "Music preference", "music_on" if music_pref else "music_off",
                       None, None, Ea, Ec, None, Be, None, None, "preference")
@@ -1757,8 +1795,18 @@ label cycle_2:
 label checkpoint_2:
     call compare_check("checkpoint_2") from _checkpoint_2_check
     if cmp_ans == "better":
-        $ closed_at = "checkpoint_2"
-        jump session_closure
+        show hana neutral at hana_pos
+        e "Would you like to continue?"
+        show hana listening at hana_center_listen
+        menu:
+            "Yes, please.":
+                $ log_turn("Would you like to continue?", "yes")
+            "No, thanks.":
+                $ log_turn("Would you like to continue?", "no")
+                $ closed_at = "checkpoint_2"
+                show hana neutral at hana_pos
+                e "Okay, that's fine."
+                jump session_closure
     $ start_cycle(3)
 
 label cycle_3:
