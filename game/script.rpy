@@ -536,20 +536,24 @@ init python:
             return 4
         return 5
 
-    def load_prior_h(profile):
-        prior_h = 0.0
-        for rec in profile.get("aem_history", []) or []:
-            if rec.get("condition") != HANA_CONDITION:
+    def load_prior_eds(profile):
+        prior_eds = []
+        for session in profile.get("aem_history", []) or []:
+            if session.get("condition") != HANA_CONDITION:
                 continue
+
+            ed = session.get("Ed")
+            cycles = session.get("cycles", []) or []
+            if ed is None and cycles:
+                ed = cycles[-1].get("Ed")
+
             try:
-                cycles = rec.get("cycles", []) or []
-                if cycles:
-                    prior_h = float(cycles[-1].get("H", 0.0))
-                else:
-                    prior_h = float(rec.get("H", 0.0))
+                if ed is not None:
+                    prior_eds.append(float(ed))
             except (TypeError, ValueError):
                 continue
-        return prior_h
+
+        return prior_eds
 
     def run_aem(S_raw):
         S = S_raw / 21.0
@@ -579,7 +583,7 @@ init python:
             "I": intention_score(E), "Ed": empathic_display(E),
         }
     def previous_cycle_eds():
-        eds = []
+        eds = list(renpy.store.prior_eds or [])
         for rec in renpy.store.cycle_records or []:
             try:
                 eds.append(float(rec["Ed"]))
@@ -591,8 +595,7 @@ init python:
         st = renpy.store
         Ed = st.aem["Ed"]
         if HANA_CONDITION == "adaptive":
-            current_cycle_eds = previous_cycle_eds()
-            H = st.prior_h + habituation(current_cycle_eds)
+            H = habituation(previous_cycle_eds())
         else:
             H = 0.0
         Ed_adaptive = adaptive_empathic_display(Ed, H)
@@ -797,7 +800,7 @@ default st_q5 = ""
 default hana_selected_profile_slot = 1
 default hana_active_profile_id = ""
 default hana_pos = hana_mid
-default prior_h = 0.0
+default prior_eds = []
 # --- Flow Starts ---
 
 label start:
@@ -905,7 +908,7 @@ label start:
             e "Okay, we'll continue without music."
 
     $ user_profile = save_user_profile(user_name, {"music_enabled": music_pref})
-    $ prior_h = load_prior_h(user_profile) if HANA_CONDITION == "adaptive" else 0.0
+    $ prior_eds = load_prior_eds(user_profile) if HANA_CONDITION == "adaptive" else []
     $ log_interaction(session_filename, session_id,
                       "Music preference", "music_on" if music_pref else "music_off",
                       None, None, Ea, Ec, None, Be, None, None, "preference")
